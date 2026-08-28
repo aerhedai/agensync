@@ -13,6 +13,7 @@ const STEP_LABELS: Record<RunStepType, string> = {
   INPUT_RECEIVED: "Input received",
   AGENT_DECISION: "Agent decision",
   TOOL_CALL: "Tool call",
+  APPROVAL_REQUESTED: "Approval requested",
   RUN_COMPLETED: "Run completed",
   RUN_FAILED: "Run failed",
 };

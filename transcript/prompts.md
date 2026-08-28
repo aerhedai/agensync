@@ -31,3 +31,11 @@ yes move on
 ---
 
 Ok i want to kind of make sure things that are repetitive are ensured to always happen, what can i do to make these things always happen instead of relying on memory: Updating the transcript after every prompt, taking screenshots of the frontend after every change and adding it to the pull request, ensuring that pull requests are made first before pushing to a branch, after phase 1 which is the setup, i want to start using properly created branching, such as dev before main, then branches off dev when creating features. I want this to all be remembered.
+
+---
+
+now check
+
+---
+
+Lets move on

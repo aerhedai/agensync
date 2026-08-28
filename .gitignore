@@ -46,3 +46,6 @@ next-env.d.ts
 .claude/.frontend-dirty
 
 /lib/generated/prisma
+
+# local prompt transcript — not for the repo (see CLAUDE.md #40)
+/transcript/

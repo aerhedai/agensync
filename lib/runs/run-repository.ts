@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
-import type { Prisma, RunStatus } from "@/lib/generated/prisma/client";
+import type {
+  Prisma,
+  RunStatus,
+  RunStepType,
+} from "@/lib/generated/prisma/client";
 
 export function createRun(
   organisationId: string,
@@ -24,12 +28,7 @@ export function markRunStatus(
 
 export function addRunStep(
   runId: string,
-  stepType:
-    | "INPUT_RECEIVED"
-    | "AGENT_DECISION"
-    | "TOOL_CALL"
-    | "RUN_COMPLETED"
-    | "RUN_FAILED",
+  stepType: RunStepType,
   detail?: string,
   toolCallId?: string,
 ) {

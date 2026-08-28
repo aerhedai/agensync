@@ -6,6 +6,7 @@ import type {
 } from "@/lib/ai/provider";
 import type { Agent } from "@/lib/generated/prisma/client";
 import { connectMcpClient } from "@/lib/mcp/client";
+import { evaluatePolicy } from "@/lib/policies/policy-engine";
 import * as runRepository from "@/lib/runs/run-repository";
 
 // Configurable safeguard against infinite agent loops (CLAUDE.md #10).
@@ -13,7 +14,7 @@ const MAX_AGENT_STEPS = 20;
 
 export interface RunResult {
   runId: string;
-  status: "COMPLETED" | "FAILED";
+  status: "COMPLETED" | "FAILED" | "WAITING_FOR_APPROVAL";
 }
 
 function firstErrorText(content: unknown): string {
@@ -110,6 +111,36 @@ export async function runAgent(
           call.name,
           toolCall.id,
         );
+
+        if (!isError) {
+          const policy = evaluatePolicy({
+            toolName: call.name,
+            toolOutput:
+              (result.structuredContent as Record<string, unknown>) ?? {},
+          });
+
+          if (policy.decision === "REQUIRE_APPROVAL") {
+            await runRepository.markRunStatus(run.id, "WAITING_FOR_APPROVAL");
+            await runRepository.addRunStep(
+              run.id,
+              "APPROVAL_REQUESTED",
+              policy.reason,
+            );
+            return { runId: run.id, status: "WAITING_FOR_APPROVAL" };
+          }
+
+          if (policy.decision === "DENY") {
+            await runRepository.markRunStatus(run.id, "FAILED", {
+              completedAt: new Date(),
+            });
+            await runRepository.addRunStep(
+              run.id,
+              "RUN_FAILED",
+              `Denied by policy: ${policy.reason}`,
+            );
+            return { runId: run.id, status: "FAILED" };
+          }
+        }
 
         messages.push({
           role: "tool",

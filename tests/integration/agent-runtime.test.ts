@@ -121,6 +121,51 @@ describe("agent runtime", () => {
     });
   });
 
+  it("pauses the run for approval instead of completing when a quote meets the threshold", async () => {
+    const provider = scriptedProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call_0",
+            name: "calculate_quote",
+            arguments: { productId: "prod-1", quantity: 1000 },
+          },
+        ],
+      },
+      // Should never be reached — the run must pause before a second
+      // generateResponse call happens.
+      { content: "This should not run." },
+    ]);
+
+    const result = await runAgent(
+      agent,
+      "Quote 1000 units of Product A",
+      provider,
+    );
+
+    expect(result.status).toBe("WAITING_FOR_APPROVAL");
+
+    const run = await prisma.agentRun.findUniqueOrThrow({
+      where: { id: result.runId },
+      include: { steps: { orderBy: { createdAt: "asc" } } },
+    });
+
+    expect(run.status).toBe("WAITING_FOR_APPROVAL");
+    expect(run.completedAt).toBeNull();
+    expect(run.steps.map((s) => s.stepType)).toEqual([
+      "INPUT_RECEIVED",
+      "AGENT_DECISION",
+      "TOOL_CALL",
+      "APPROVAL_REQUESTED",
+    ]);
+
+    const approvalStep = run.steps.find(
+      (s) => s.stepType === "APPROVAL_REQUESTED",
+    );
+    expect(approvalStep?.detail).toMatch(/£15,000.*£10,000/);
+  });
+
   it("marks the run FAILED with a tool-error record when a tool call fails", async () => {
     const provider = scriptedProvider([
       {

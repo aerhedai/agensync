@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { AIProvider, AIResponse } from "@/lib/ai/provider";
 import { prisma } from "@/lib/db/prisma";
-import type { Agent } from "@/lib/generated/prisma/client";
-import { runAgent } from "@/lib/runtime/agent-runtime";
+import type { Agent, User } from "@/lib/generated/prisma/client";
+import { resumeRun, runAgent } from "@/lib/runtime/agent-runtime";
 
 // Ollama isn't reachable from CI, so the runtime's loop logic — step
 // counting, persistence, tool execution, error handling — is proven here
@@ -33,6 +33,7 @@ function throwingProvider(message: string): AIProvider {
 describe("agent runtime", () => {
   const organisationId = "test-org-runtime";
   let agent: Agent;
+  let approver: User;
 
   beforeAll(async () => {
     await prisma.organisation.create({
@@ -48,9 +49,20 @@ describe("agent runtime", () => {
         status: "ACTIVE",
       },
     });
+    approver = await prisma.user.create({
+      data: {
+        organisationId,
+        email: "approver@runtime-test.local",
+        name: "Test Approver",
+        role: "APPROVER",
+      },
+    });
   });
 
   afterAll(async () => {
+    await prisma.approval.deleteMany({
+      where: { agentRunId: { in: await runIds() } },
+    });
     await prisma.toolCall.deleteMany({
       where: { agentRunId: { in: await runIds() } },
     });
@@ -59,6 +71,7 @@ describe("agent runtime", () => {
     });
     await prisma.agentRun.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
+    await prisma.user.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -164,6 +177,116 @@ describe("agent runtime", () => {
       (s) => s.stepType === "APPROVAL_REQUESTED",
     );
     expect(approvalStep?.detail).toMatch(/£15,000.*£10,000/);
+
+    const approval = await prisma.approval.findFirst({
+      where: { agentRunId: result.runId },
+    });
+    expect(approval).toMatchObject({
+      status: "PENDING",
+      requestedAction: "calculate_quote",
+    });
+  });
+
+  it("resumes and completes a run after approval, continuing the same conversation", async () => {
+    const pauseProvider = scriptedProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call_0",
+            name: "calculate_quote",
+            arguments: { productId: "prod-1", quantity: 1000 },
+          },
+        ],
+      },
+    ]);
+    const paused = await runAgent(
+      agent,
+      "Quote 1000 units of Product A",
+      pauseProvider,
+    );
+    expect(paused.status).toBe("WAITING_FOR_APPROVAL");
+
+    const resumeProvider = scriptedProvider([
+      { content: "Approved — quote sent for £15,000." },
+    ]);
+    const resumed = await resumeRun(
+      paused.runId,
+      organisationId,
+      "APPROVED",
+      approver.id,
+      resumeProvider,
+    );
+
+    expect(resumed.status).toBe("COMPLETED");
+
+    const run = await prisma.agentRun.findUniqueOrThrow({
+      where: { id: paused.runId },
+      include: { steps: { orderBy: { createdAt: "asc" } } },
+    });
+    expect(run.status).toBe("COMPLETED");
+    expect(run.steps.map((s) => s.stepType)).toEqual([
+      "INPUT_RECEIVED",
+      "AGENT_DECISION",
+      "TOOL_CALL",
+      "APPROVAL_REQUESTED",
+      "APPROVAL_GRANTED",
+      "AGENT_DECISION",
+      "RUN_COMPLETED",
+    ]);
+
+    const approval = await prisma.approval.findFirst({
+      where: { agentRunId: paused.runId },
+    });
+    expect(approval).toMatchObject({
+      status: "APPROVED",
+      approverId: approver.id,
+    });
+  });
+
+  it("cancels the run when the approver rejects it", async () => {
+    const pauseProvider = scriptedProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call_0",
+            name: "calculate_quote",
+            arguments: { productId: "prod-1", quantity: 1000 },
+          },
+        ],
+      },
+    ]);
+    const paused = await runAgent(
+      agent,
+      "Quote 1000 units of Product A",
+      pauseProvider,
+    );
+    expect(paused.status).toBe("WAITING_FOR_APPROVAL");
+
+    const resumed = await resumeRun(
+      paused.runId,
+      organisationId,
+      "REJECTED",
+      approver.id,
+    );
+
+    expect(resumed.status).toBe("CANCELLED");
+
+    const run = await prisma.agentRun.findUniqueOrThrow({
+      where: { id: paused.runId },
+      include: { steps: { orderBy: { createdAt: "asc" } } },
+    });
+    expect(run.status).toBe("CANCELLED");
+    expect(run.steps.at(-1)).toMatchObject({ stepType: "RUN_CANCELLED" });
+
+    const approval = await prisma.approval.findFirst({
+      where: { agentRunId: paused.runId },
+    });
+    expect(approval).toMatchObject({
+      status: "REJECTED",
+      approverId: approver.id,
+    });
   });
 
   it("marks the run FAILED with a tool-error record when a tool call fails", async () => {

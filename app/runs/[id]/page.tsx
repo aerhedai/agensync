@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { approveRunAction, rejectRunAction } from "@/app/runs/[id]/actions";
 import { RunStatusBadge } from "@/components/runs/run-status-badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RunStepType } from "@/lib/generated/prisma/client";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
@@ -14,8 +16,10 @@ const STEP_LABELS: Record<RunStepType, string> = {
   AGENT_DECISION: "Agent decision",
   TOOL_CALL: "Tool call",
   APPROVAL_REQUESTED: "Approval requested",
+  APPROVAL_GRANTED: "Approval granted",
   RUN_COMPLETED: "Run completed",
   RUN_FAILED: "Run failed",
+  RUN_CANCELLED: "Run cancelled",
 };
 
 function formatDuration(
@@ -65,6 +69,26 @@ export default async function RunDetailPage({
           <p className="text-sm whitespace-pre-wrap">{run.input}</p>
         </CardContent>
       </Card>
+
+      {run.status === "WAITING_FOR_APPROVAL" && (
+        <Card className="border-warning/40">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-warning">
+              Approval needed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-3">
+            <form action={approveRunAction.bind(null, run.id)}>
+              <Button type="submit">Approve</Button>
+            </form>
+            <form action={rejectRunAction.bind(null, run.id)}>
+              <Button type="submit" variant="outline">
+                Reject
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

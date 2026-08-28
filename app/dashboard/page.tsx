@@ -11,12 +11,16 @@ export default async function DashboardPage() {
   const organisation = await getCurrentOrganisation();
   const counts = await dashboardService.getDashboardCounts(organisation.id);
 
-  const stats = [
-    { label: "Agents", value: counts.agents },
+  const stats: { label: string; value: number; href?: string }[] = [
+    { label: "Agents", value: counts.agents, href: "/agents" },
     { label: "Active runs", value: counts.running },
     { label: "Completed runs", value: counts.completed },
     { label: "Failed runs", value: counts.failed },
-    { label: "Pending approvals", value: counts.waitingForApproval },
+    {
+      label: "Pending approvals",
+      value: counts.waitingForApproval,
+      href: "/approvals",
+    },
   ];
 
   return (
@@ -32,20 +36,36 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {stats.map((stat) => (
-          <Card key={stat.label}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.label}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold tabular-nums">
-                {stat.value}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+        {stats.map((stat) => {
+          const card = (
+            <Card
+              className={
+                stat.href
+                  ? "transition-colors hover:border-primary/40"
+                  : undefined
+              }
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {stat.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold tabular-nums">
+                  {stat.value}
+                </p>
+              </CardContent>
+            </Card>
+          );
+
+          return stat.href ? (
+            <Link key={stat.label} href={stat.href}>
+              {card}
+            </Link>
+          ) : (
+            <div key={stat.label}>{card}</div>
+          );
+        })}
       </div>
     </div>
   );

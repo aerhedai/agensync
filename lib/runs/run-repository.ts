@@ -57,6 +57,13 @@ export function createToolCall(
   });
 }
 
+export function saveMessages(runId: string, messages: Prisma.InputJsonValue) {
+  return prisma.agentRun.update({
+    where: { id: runId },
+    data: { messages },
+  });
+}
+
 export function findRunById(organisationId: string, runId: string) {
   return prisma.agentRun.findFirst({
     where: { id: runId, organisationId },

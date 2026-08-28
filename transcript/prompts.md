@@ -15,3 +15,11 @@ ollama itself is running off this computer on a seperate server, it can be reach
 ---
 
 Nothing needs to change here. What i also need is to create this as a new git repo. I want to take the development slowly and test at each stage. The file structure has also not been set up yet to include docker compose files, git files etc.
+
+---
+
+can you make sure that this project is under the aerhed organisation
+
+---
+
+can we use node 24 to keep everything up to date.

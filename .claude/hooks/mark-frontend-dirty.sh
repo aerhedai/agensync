@@ -7,6 +7,14 @@ set -euo pipefail
 FILE="$(jq -r '.tool_input.file_path // empty')"
 [ -z "$FILE" ] && exit 0
 
+# app/api/** is backend (Route Handlers), not UI — exclude before the broad
+# */app/* match below, which is meant for pages/layouts/UI code.
+case "$FILE" in
+  */app/api/*)
+    exit 0
+    ;;
+esac
+
 case "$FILE" in
   */app/*|*/components/*|*.tsx|*.css)
     mkdir -p .claude

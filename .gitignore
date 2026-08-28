@@ -44,3 +44,5 @@ next-env.d.ts
 # claude code — personal overrides and ephemeral hook state, not team policy
 .claude/settings.local.json
 .claude/.frontend-dirty
+
+/lib/generated/prisma

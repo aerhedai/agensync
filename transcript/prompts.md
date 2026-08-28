@@ -39,3 +39,11 @@ now check
 ---
 
 Lets move on
+
+---
+
+Based on the structure so far what is currently running and how are they communicating
+
+---
+
+Yes continue

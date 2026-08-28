@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: agensync
       POSTGRES_DB: agensync
     ports:
-      - "5432:5432"
+      # Host port 5433, not 5432 — this machine already has other local
+      # Postgres installs (Homebrew, Postgres.app) bound to localhost:5432.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

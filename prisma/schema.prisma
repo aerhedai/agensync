@@ -1,0 +1,11 @@
+// No models yet — this stage only proves the Next.js -> Prisma -> Postgres
+// connection works (via app/api/health/route.ts). Domain models land in Phase 2.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}

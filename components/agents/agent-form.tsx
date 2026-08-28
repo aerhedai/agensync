@@ -93,7 +93,7 @@ export function AgentForm({
           name="model"
           defaultValue={agent?.model}
           required
-          placeholder="e.g. llama3"
+          placeholder="e.g. qwen2.5:14b"
         />
         {state.fieldErrors?.model && (
           <p className="text-sm text-destructive">

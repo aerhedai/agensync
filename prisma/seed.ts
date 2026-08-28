@@ -31,7 +31,7 @@ async function main() {
       description: "Processes incoming quote requests.",
       instructions:
         "Read quote requests and extract the relevant information. Use the available tools to retrieve customer and product information. Never send a quote above £10,000 without approval.",
-      model: "llama3",
+      model: "qwen2.5:14b",
       status: "ACTIVE",
     },
   });

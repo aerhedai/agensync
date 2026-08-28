@@ -49,3 +49,8 @@ next-env.d.ts
 
 # local prompt transcript — not for the repo (see CLAUDE.md #40)
 /transcript/
+
+# local screenshot artifacts from manual UI verification (repo-root only —
+# doesn't affect real image assets committed under public/ etc.)
+/.playwright-mcp/
+/*.png

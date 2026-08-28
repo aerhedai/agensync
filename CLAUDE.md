@@ -1690,3 +1690,36 @@ The most important principle for this project is:
 Do not confuse complexity with quality.
 
 The architecture should be capable of growing into a serious B2B agentic automation platform, but V1 should remain small enough that the developer understands every major part of it.
+
+---
+
+# 40. Workflow Automation and Branching Policy
+
+The following are enforced mechanically (via `.claude/settings.json` hooks and, from Phase 2 onward, GitHub branch protection) rather than left to memory or convention, so they cannot be silently skipped.
+
+## Prompt transcript
+
+Every user prompt in this repository is appended automatically to `transcript/prompts.md` by a `UserPromptSubmit` hook (`.claude/hooks/log-prompt.sh`). This is unconditional — it logs every prompt, including ones a user asks not to be logged in the moment; if a prompt must be excluded, remove it from `transcript/prompts.md` afterward.
+
+## Frontend screenshots before a PR
+
+Editing any file under `app/`, `components/`, or any `.tsx`/`.css` file sets a local marker (`.claude/.frontend-dirty`, gitignored) via a `PostToolUse` hook (`.claude/hooks/mark-frontend-dirty.sh`). A `PreToolUse` hook (`.claude/hooks/check-pr-screenshot.sh`) blocks `gh pr create` while that marker is set. To proceed: take a screenshot of the running app, attach it to the PR body, then run `rm .claude/.frontend-dirty`.
+
+This gate can only enforce an explicit acknowledgment step — it cannot verify a screenshot was actually taken or is accurate. Treat it as a forcing function against forgetting, not a substitute for actually looking at the page.
+
+## Branching model
+
+Effective once Phase 1 (project foundation) is complete — Phase 1 itself was built via direct commits to `main`, which is a deliberate one-time exception for initial scaffolding, not the ongoing policy:
+
+```text
+main   — protected, always deployable
+  ↑ PR only
+dev    — protected, integration branch
+  ↑ PR only
+feature/* — branched off dev, one per issue/feature
+```
+
+* No direct pushes to `main` or `dev`. All changes land via a pull request.
+* Feature branches are cut from `dev`, not `main`.
+* `main` only receives merges from `dev` (releases), never directly from a feature branch.
+* Enforced server-side via GitHub branch protection rules on `main` and `dev` (required PR, no direct pushes), not just by convention.

@@ -4,13 +4,23 @@ import { calculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
 import { checkInventoryTool } from "@/lib/mcp/tools/check-inventory";
 import { findCustomerTool } from "@/lib/mcp/tools/find-customer";
 import { findProductTool } from "@/lib/mcp/tools/find-product";
+import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
 
-// All four Phase 5 tools are read-only lookups/calculations — none mutate
-// anything, so no policy/permission system is needed yet (that's Phase 7).
-// Tools that write will need one.
+// The four Phase 5 tools are read-only lookups/calculations. send_email
+// (Phase 9) is the first tool that mutates external state, so it's marked
+// accordingly and gets an explicit policy rule (lib/policies/policy-engine.ts)
+// rather than relying on the default ALLOW.
 const readOnly = { readOnlyHint: true };
 
-export function createMcpServer(): McpServer {
+/**
+ * organisationId is required (not defaulted via getCurrentOrganisation
+ * internally) so every caller has to state which organisation's tools this
+ * server instance serves — send_email needs it to look up the right
+ * Gmail credentials, and CLAUDE.md #22 requires every organisation-scoped
+ * action to be explicitly scoped, not resolved via a global fallback deep
+ * inside a tool handler.
+ */
+export function createMcpServer(organisationId: string): McpServer {
   const server = new McpServer({ name: "agensync-tools", version: "0.1.0" });
 
   server.registerTool(
@@ -55,6 +65,17 @@ export function createMcpServer(): McpServer {
       annotations: readOnly,
     },
     calculateQuoteTool.handler,
+  );
+
+  const sendEmailTool = createSendEmailTool(organisationId);
+  server.registerTool(
+    sendEmailTool.name,
+    {
+      description: sendEmailTool.description,
+      inputSchema: sendEmailTool.inputSchema,
+      outputSchema: sendEmailTool.outputSchema,
+    },
+    sendEmailTool.handler,
   );
 
   return server;

@@ -51,16 +51,21 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum IntegrationProvider {
+  GMAIL
+}
+
 model Organisation {
   id        String   @id @default(cuid())
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users     User[]
-  agents    Agent[]
-  agentRuns AgentRun[]
-  approvals Approval[]
+  users        User[]
+  agents       Agent[]
+  agentRuns    AgentRun[]
+  approvals    Approval[]
+  integrations Integration[]
 }
 
 model User {
@@ -167,5 +172,26 @@ model Approval {
   approver     User?        @relation(fields: [approverId], references: [id])
 
   @@index([agentRunId])
+  @@index([organisationId])
+}
+
+// Stores one OAuth token set per organisation per provider. Tokens are
+// plaintext for V1 — server-side only, never sent to the browser, never
+// committed (CLAUDE.md #22) — see docs/production-notes.md for the
+// encryption-at-rest hardening this needs before any real deployment.
+model Integration {
+  id             String              @id @default(cuid())
+  organisationId String
+  provider       IntegrationProvider
+  email          String
+  accessToken    String
+  refreshToken   String
+  expiresAt      DateTime
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, provider])
   @@index([organisationId])
 }

@@ -34,13 +34,21 @@ enum RunStepType {
   AGENT_DECISION
   TOOL_CALL
   APPROVAL_REQUESTED
+  APPROVAL_GRANTED
   RUN_COMPLETED
   RUN_FAILED
+  RUN_CANCELLED
 }
 
 enum ToolCallStatus {
   SUCCESS
   FAILED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model Organisation {
@@ -52,6 +60,7 @@ model Organisation {
   users     User[]
   agents    Agent[]
   agentRuns AgentRun[]
+  approvals Approval[]
 }
 
 model User {
@@ -63,7 +72,8 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id])
+  organisation     Organisation @relation(fields: [organisationId], references: [id])
+  approvalsDecided Approval[]
 
   @@index([organisationId])
 }
@@ -92,6 +102,10 @@ model AgentRun {
   organisationId String
   status         RunStatus @default(PENDING)
   input          String
+  // Snapshot of the in-progress conversation, saved only when the run
+  // pauses for approval — lets resumeRun() pick the loop back up rather
+  // than starting the conversation over.
+  messages       Json?
   startedAt      DateTime?
   completedAt    DateTime?
   createdAt      DateTime  @default(now())
@@ -101,6 +115,7 @@ model AgentRun {
   organisation Organisation @relation(fields: [organisationId], references: [id])
   steps        RunStep[]
   toolCalls    ToolCall[]
+  approvals    Approval[]
 
   @@index([agentId])
   @@index([organisationId])
@@ -134,4 +149,23 @@ model ToolCall {
   runStep  RunStep?
 
   @@index([agentRunId])
+}
+
+model Approval {
+  id              String         @id @default(cuid())
+  agentRunId      String
+  organisationId  String
+  requestedAction String
+  reason          String
+  status          ApprovalStatus @default(PENDING)
+  requestedAt     DateTime       @default(now())
+  approverId      String?
+  decidedAt       DateTime?
+
+  agentRun     AgentRun     @relation(fields: [agentRunId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  approver     User?        @relation(fields: [approverId], references: [id])
+
+  @@index([agentRunId])
+  @@index([organisationId])
 }

@@ -35,5 +35,16 @@ export function evaluatePolicy(context: PolicyContext): PolicyResult {
     }
   }
 
+  // Explicit rather than falling through to the default: send_email mutates
+  // external state, and CLAUDE.md's own policy example table (#14) lists
+  // "Send external email: ALLOW" — the quote amount itself is already
+  // gated above, so sending the resulting email doesn't need a second gate.
+  if (context.toolName === "send_email") {
+    return {
+      decision: "ALLOW",
+      reason: "Sending email is allowed by default policy.",
+    };
+  }
+
   return { decision: "ALLOW", reason: "No policy restricts this action." };
 }

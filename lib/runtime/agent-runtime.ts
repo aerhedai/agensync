@@ -193,7 +193,7 @@ export async function runAgent(
   });
   await runRepository.addRunStep(run.id, "INPUT_RECEIVED", input);
 
-  const mcpClient = await connectMcpClient();
+  const mcpClient = await connectMcpClient(agent.organisationId);
 
   try {
     const tools = await loadTools(mcpClient);
@@ -277,7 +277,7 @@ export async function resumeRun(
   );
   await runRepository.markRunStatus(runId, "RUNNING");
 
-  const mcpClient = await connectMcpClient();
+  const mcpClient = await connectMcpClient(organisationId);
 
   try {
     const tools = await loadTools(mcpClient);

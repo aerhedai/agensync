@@ -9,9 +9,10 @@ import { createMcpServer } from "@/lib/mcp/server";
 // CI-safe, but not a mock: this is the actual client/server/protocol code.
 describe("MCP tool server", () => {
   let client: Client;
+  const organisationId = "test-org-mcp-tools";
 
   beforeEach(async () => {
-    const server = createMcpServer();
+    const server = createMcpServer(organisationId);
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
 
@@ -26,7 +27,7 @@ describe("MCP tool server", () => {
     await client.close();
   });
 
-  it("lists all four tools", async () => {
+  it("lists all five tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
@@ -35,6 +36,7 @@ describe("MCP tool server", () => {
       "check_inventory",
       "find_customer",
       "find_product",
+      "send_email",
     ]);
   });
 
@@ -100,6 +102,26 @@ describe("MCP tool server", () => {
     });
   });
 
+  it("calculate_quote falls back to a name/SKU match when given a product name instead of an id", async () => {
+    // Regression test for a real Phase 9 live-testing failure: the model
+    // called find_product first (getting back id "prod-1") but then passed
+    // find_product's *query* ("Product A") to calculate_quote instead of
+    // the id it had just been given — this must still resolve correctly.
+    const result = await client.callTool({
+      name: "calculate_quote",
+      arguments: { productId: "Product A", quantity: 500 },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({
+      productId: "prod-1",
+      quantity: 500,
+      unitPrice: 15,
+      total: 7500,
+      currency: "GBP",
+    });
+  });
+
   it("calculate_quote reports a tool-level error for an unknown product", async () => {
     const result = await client.callTool({
       name: "calculate_quote",
@@ -116,5 +138,42 @@ describe("MCP tool server", () => {
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it("send_email reports a tool error when Gmail isn't connected for the organisation", async () => {
+    const result = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: "buyer@customer-abc.test",
+        subject: "Your quote",
+        body: "£7,500 for 500 units of Product A.",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Gmail is not connected") },
+    ]);
+  });
+
+  it("send_email is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
+    // Confirms organisationId can't be smuggled in via tool arguments (the
+    // Zod input schema doesn't even accept one) — it's bound at server
+    // construction, so a malicious/confused LLM has no channel to target
+    // another organisation's Gmail credentials (CLAUDE.md #22).
+    const result = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: "buyer@customer-abc.test",
+        subject: "Your quote",
+        body: "£7,500 for 500 units of Product A.",
+        organisationId: "some-other-org",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Gmail is not connected") },
+    ]);
   });
 });

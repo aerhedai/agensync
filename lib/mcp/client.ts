@@ -9,8 +9,10 @@ import { createMcpServer } from "@/lib/mcp/server";
  * MCP architecture discussion: this is the same pattern the app/api/mcp
  * route would use over HTTP, just without the network.
  */
-export async function connectMcpClient(): Promise<Client> {
-  const server = createMcpServer();
+export async function connectMcpClient(
+  organisationId: string,
+): Promise<Client> {
+  const server = createMcpServer(organisationId);
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
 

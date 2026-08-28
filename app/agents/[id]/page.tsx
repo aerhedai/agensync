@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { runAgentAction } from "@/app/agents/[id]/actions";
 import { AgentStatusBadge } from "@/components/agents/agent-status-badge";
+import { RunAgentForm } from "@/components/agents/run-agent-form";
+import { RunStatusBadge } from "@/components/runs/run-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import * as agentService from "@/lib/agents/agent-service";
+import { connectMcpClient } from "@/lib/mcp/client";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
+import * as runService from "@/lib/runs/run-service";
+
+export const dynamic = "force-dynamic";
 
 export default async function AgentDetailPage({
   params,
@@ -17,6 +24,13 @@ export default async function AgentDetailPage({
   if (!agent) {
     notFound();
   }
+
+  const [runs, mcpClient] = await Promise.all([
+    runService.listRunsForAgent(organisation.id, agent.id),
+    connectMcpClient(),
+  ]);
+  const { tools } = await mcpClient.listTools();
+  await mcpClient.close();
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
@@ -68,8 +82,20 @@ export default async function AgentDetailPage({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            No tools configured yet.
+            {tools.map((tool) => tool.name).join(", ")} — available to every
+            agent for now; per-agent tool restriction isn&apos;t built yet.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Run agent
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <RunAgentForm action={runAgentAction.bind(null, agent.id)} />
         </CardContent>
       </Card>
 
@@ -80,7 +106,26 @@ export default async function AgentDetailPage({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">No runs yet.</p>
+          {runs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No runs yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {runs.map((run) => (
+                <li key={run.id}>
+                  <Link
+                    href={`/runs/${run.id}`}
+                    className="flex items-center justify-between text-sm hover:underline"
+                  >
+                    <span className="font-mono text-xs text-muted-foreground">
+                      #{run.id.slice(-8)}
+                    </span>
+                    <span className="truncate px-2">{run.input}</span>
+                    <RunStatusBadge status={run.status} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </div>

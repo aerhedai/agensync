@@ -29,6 +29,19 @@ enum RunStatus {
   CANCELLED
 }
 
+enum RunStepType {
+  INPUT_RECEIVED
+  AGENT_DECISION
+  TOOL_CALL
+  RUN_COMPLETED
+  RUN_FAILED
+}
+
+enum ToolCallStatus {
+  SUCCESS
+  FAILED
+}
+
 model Organisation {
   id        String   @id @default(cuid())
   name      String
@@ -86,19 +99,38 @@ model AgentRun {
   agent        Agent        @relation(fields: [agentId], references: [id])
   organisation Organisation @relation(fields: [organisationId], references: [id])
   steps        RunStep[]
+  toolCalls    ToolCall[]
 
   @@index([agentId])
   @@index([organisationId])
 }
 
 model RunStep {
-  id         String   @id @default(cuid())
+  id         String      @id @default(cuid())
   agentRunId String
-  stepType   String
+  stepType   RunStepType
   detail     String?
-  createdAt  DateTime @default(now())
+  toolCallId String?     @unique
+  createdAt  DateTime    @default(now())
+
+  agentRun AgentRun  @relation(fields: [agentRunId], references: [id])
+  toolCall ToolCall? @relation(fields: [toolCallId], references: [id])
+
+  @@index([agentRunId])
+}
+
+model ToolCall {
+  id         String         @id @default(cuid())
+  agentRunId String
+  toolName   String
+  input      Json
+  output     Json?
+  status     ToolCallStatus
+  error      String?
+  createdAt  DateTime       @default(now())
 
   agentRun AgentRun @relation(fields: [agentRunId], references: [id])
+  runStep  RunStep?
 
   @@index([agentRunId])
 }

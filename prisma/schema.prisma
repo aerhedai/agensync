@@ -1,6 +1,3 @@
-// No models yet — this stage only proves the Next.js -> Prisma -> Postgres
-// connection works (via app/api/health/route.ts). Domain models land in Phase 2.
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -8,4 +5,100 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  APPROVER
+}
+
+enum AgentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Organisation {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  agents    Agent[]
+  agentRuns AgentRun[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  organisationId String
+  email          String   @unique
+  name           String
+  role           UserRole @default(MEMBER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId])
+}
+
+model Agent {
+  id             String      @id @default(cuid())
+  organisationId String
+  name           String
+  description    String
+  instructions   String
+  model          String
+  status         AgentStatus @default(DRAFT)
+  version        Int         @default(1)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  runs         AgentRun[]
+
+  @@index([organisationId])
+}
+
+model AgentRun {
+  id             String    @id @default(cuid())
+  agentId        String
+  organisationId String
+  status         RunStatus @default(PENDING)
+  input          String
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  steps        RunStep[]
+
+  @@index([agentId])
+  @@index([organisationId])
+}
+
+model RunStep {
+  id         String   @id @default(cuid())
+  agentRunId String
+  stepType   String
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id])
+
+  @@index([agentRunId])
 }

@@ -6,13 +6,29 @@ on:
   pull_request:
 
 env:
-  # lib/env.ts validates this at import time. No real database is needed —
-  # nothing in CI executes a query against it (see CLAUDE.md #40 / issue #5).
-  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+  # A real Postgres service (below), not a dummy string — Phase 2's
+  # integration tests need an actual database to create/read rows against.
+  DATABASE_URL: postgresql://agensync:agensync@localhost:5432/agensync
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agensync
+          POSTGRES_PASSWORD: agensync
+          POSTGRES_DB: agensync
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agensync -d agensync"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +50,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Run migrations
+        run: pnpm exec prisma migrate deploy
 
       - name: Test
         run: pnpm test

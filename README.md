@@ -4,7 +4,7 @@ AI-powered business process automation platform. See [`CLAUDE.md`](./CLAUDE.md) 
 
 ## Status
 
-Phase 1 (project foundation) — nearly complete. Next.js App Router, TypeScript strict mode, Tailwind CSS, ESLint/Prettier, shadcn/ui, Docker Compose (PostgreSQL), Prisma, and CI are all wired up and verified end to end. No domain models, tools, or agent runtime yet — that's Phase 2 onward.
+Phase 1 (project foundation) is complete. Phase 2 (database) is underway: core domain models (Organisation, User, Agent, AgentRun, RunStep) exist with a migration and a seed script. No tools, UI, or agent runtime yet — that's Phase 3 onward.
 
 ## Prerequisites
 
@@ -22,6 +22,9 @@ pnpm install          # also generates the Prisma client (postinstall)
 cp .env.example .env.local
 
 docker compose up -d  # starts PostgreSQL on localhost:5433
+pnpm exec prisma migrate deploy
+pnpm db:seed
+
 pnpm dev
 ```
 
@@ -38,18 +41,20 @@ Ollama is not run via Docker Compose here — during development it runs on a se
 
 ## Scripts
 
-| Command                             | Purpose                |
-| ----------------------------------- | ---------------------- |
-| `pnpm dev`                          | Start the dev server   |
-| `pnpm build`                        | Production build       |
-| `pnpm start`                        | Run a production build |
-| `pnpm lint`                         | ESLint                 |
-| `pnpm format` / `pnpm format:check` | Prettier               |
-| `pnpm typecheck`                    | `tsc --noEmit`         |
-| `pnpm test` / `pnpm test:watch`     | Vitest                 |
+| Command                             | Purpose                          |
+| ----------------------------------- | -------------------------------- |
+| `pnpm dev`                          | Start the dev server             |
+| `pnpm build`                        | Production build                 |
+| `pnpm start`                        | Run a production build           |
+| `pnpm lint`                         | ESLint                           |
+| `pnpm format` / `pnpm format:check` | Prettier                         |
+| `pnpm typecheck`                    | `tsc --noEmit`                   |
+| `pnpm test` / `pnpm test:watch`     | Vitest                           |
+| `pnpm db:migrate`                   | Create + apply a migration (dev) |
+| `pnpm db:seed`                      | Seed local dev data              |
 
-CI (`.github/workflows/ci.yml`) runs all of the above (install → lint → format:check → typecheck → test → build) on every push and pull request to `main`.
+CI (`.github/workflows/ci.yml`) runs a real Postgres service, applies migrations, then: install → lint → format:check → typecheck → migrate → test → build, on every push and pull request to `main`.
 
 ## Workflow
 
-Every prompt given to Claude Code in this repo is logged automatically to `transcript/prompts.md`, and frontend changes are gated behind a screenshot requirement before a PR can be opened — both enforced via hooks in `.claude/settings.json`, documented in [`CLAUDE.md` §40](./CLAUDE.md). Once Phase 1 is complete, all further work moves to a `dev`-branch-first workflow with protected `main`/`dev` branches — see issue [#16](https://github.com/aerhedai/agensync/issues/16).
+Every prompt given to Claude Code in this repo is logged automatically to a local, gitignored `transcript/prompts.md`, and frontend changes are gated behind a screenshot requirement before a PR can be opened — both enforced via hooks in `.claude/settings.json`, documented in [`CLAUDE.md` §40](./CLAUDE.md). `main` and `dev` are protected: no direct pushes, PRs required, `ci` must pass. Feature branches are cut from `dev`.

@@ -1,4 +1,10 @@
+import { config } from "dotenv";
 import { defineConfig } from "vitest/config";
+
+// Same convention as prisma7.config.ts: load .env.local so tests use the
+// same DATABASE_URL as the rest of the app (real local Postgres, or
+// whatever CI sets — this silently no-ops if the file doesn't exist).
+config({ path: ".env.local" });
 
 export default defineConfig({
   resolve: {
@@ -6,10 +12,5 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts"],
-    env: {
-      // lib/env.ts validates DATABASE_URL at import time; tests need a
-      // syntactically valid value even though no real DB is touched.
-      DATABASE_URL: "postgresql://test:test@localhost:5432/test",
-    },
   },
 });

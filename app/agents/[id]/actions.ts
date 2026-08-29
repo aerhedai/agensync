@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import * as agentService from "@/lib/agents/agent-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
-import { runAgent } from "@/lib/runtime/agent-runtime";
+import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
 
 export type RunAgentFormState = {
   error?: string;
@@ -26,6 +26,6 @@ export async function runAgentAction(
     notFound();
   }
 
-  const result = await runAgent(agent, input.trim());
+  const result = await runAgentByExecutionMode(agent, input.trim());
   redirect(`/runs/${result.runId}`);
 }

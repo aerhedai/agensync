@@ -17,6 +17,10 @@ import {
   requiresApprovalBeforeExecution,
 } from "@/lib/policies/policy-engine";
 import * as runRepository from "@/lib/runs/run-repository";
+import {
+  executeAndRecordTool,
+  recordDisallowedTool,
+} from "@/lib/runtime/tool-execution";
 
 // Configurable safeguard against infinite agent loops (CLAUDE.md #10).
 const MAX_AGENT_STEPS = 20;
@@ -24,90 +28,6 @@ const MAX_AGENT_STEPS = 20;
 export interface RunResult {
   runId: string;
   status: "COMPLETED" | "FAILED" | "WAITING_FOR_APPROVAL" | "CANCELLED";
-}
-
-function firstErrorText(content: unknown): string {
-  if (!Array.isArray(content)) return "Tool call failed.";
-  const textBlock = content.find(
-    (block): block is { type: "text"; text: string } =>
-      typeof block === "object" &&
-      block !== null &&
-      (block as { type?: unknown }).type === "text",
-  );
-  return textBlock?.text ?? "Tool call failed.";
-}
-
-/**
- * Executes one tool call, records it (ToolCall + TOOL_CALL step), and
- * appends its result to the conversation. Shared by the main loop (for
- * tools that don't need prior approval) and resumeRun (for executing a
- * previously-held-back call after it's approved) so the two can't diverge.
- */
-async function executeToolCall(
-  runId: string,
-  mcpClient: Client,
-  call: AIToolCallRequest,
-  messages: AIMessage[],
-): Promise<{
-  isError: boolean;
-  structuredContent: Record<string, unknown> | undefined;
-}> {
-  const result = await mcpClient.callTool({
-    name: call.name,
-    arguments: call.arguments,
-  });
-  const isError = result.isError === true;
-  const structuredContent = result.structuredContent as
-    Record<string, unknown> | undefined;
-
-  const toolCall = await runRepository.createToolCall(
-    runId,
-    call.name,
-    call.arguments,
-    structuredContent,
-    isError ? "FAILED" : "SUCCESS",
-    isError ? firstErrorText(result.content) : undefined,
-  );
-  await runRepository.addRunStep(runId, "TOOL_CALL", call.name, toolCall.id);
-
-  messages.push({
-    role: "tool",
-    content: JSON.stringify(structuredContent ?? {}),
-    toolCallId: call.id,
-  });
-
-  return { isError, structuredContent };
-}
-
-/**
- * Records a tool call the agent isn't permitted to use as a failed call —
- * without ever reaching the MCP server — and lets the model see the error
- * and react (CLAUDE.md #9 step 3: "check the agent has access to the
- * tool"). Kept distinct from executeToolCall: this path never touches
- * mcpClient at all, since the call is refused before execution is even
- * attempted.
- */
-async function recordDisallowedToolCall(
-  runId: string,
-  call: AIToolCallRequest,
-  messages: AIMessage[],
-): Promise<void> {
-  const error = `This agent does not have access to the "${call.name}" tool.`;
-  const toolCall = await runRepository.createToolCall(
-    runId,
-    call.name,
-    call.arguments,
-    undefined,
-    "FAILED",
-    error,
-  );
-  await runRepository.addRunStep(runId, "TOOL_CALL", call.name, toolCall.id);
-
-  messages.push({
-    role: "tool",
-    content: JSON.stringify({ error }),
-    toolCallId: call.id,
-  });
 }
 
 function escapeRegExp(text: string): string {
@@ -147,7 +67,7 @@ function looksLikeAbortedToolCall(
   );
 }
 
-async function loadTools(
+export async function loadTools(
   mcpClient: Client,
   allowedTools: Set<string>,
 ): Promise<AIToolDefinition[]> {
@@ -176,10 +96,41 @@ interface LoopContext {
 }
 
 /**
+ * Executes one already-allowed, non-gated tool call within the loop and
+ * appends its result to the conversation — the messages bookkeeping is
+ * loop-specific (the harness doesn't maintain a chat history), so this
+ * wraps the shared executeAndRecordTool rather than being shared itself.
+ */
+async function executeToolCall(
+  runId: string,
+  mcpClient: Client,
+  call: AIToolCallRequest,
+  messages: AIMessage[],
+): Promise<{
+  isError: boolean;
+  structuredContent: Record<string, unknown> | undefined;
+}> {
+  const { isError, structuredContent } = await executeAndRecordTool(
+    runId,
+    mcpClient,
+    call.name,
+    call.arguments,
+  );
+  messages.push({
+    role: "tool",
+    content: JSON.stringify(structuredContent ?? {}),
+    toolCallId: call.id,
+  });
+  return { isError, structuredContent };
+}
+
+/**
  * The core loop: input -> LLM -> tool call -> policy check -> result -> LLM
  * -> ... -> complete (CLAUDE.md #10). Shared by runAgent (fresh start) and
  * resumeRun (continuing from a persisted message snapshot after approval),
- * so pausing/resuming can't drift into two different implementations.
+ * so pausing/resuming can't drift into two different implementations. This
+ * is the "LOOP" execution mode — see lib/harness/ for "HARNESS", where tool
+ * sequencing is deterministic code instead of a model decision each turn.
  */
 async function runLoop(context: LoopContext): Promise<RunResult> {
   const {
@@ -203,6 +154,8 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
       runId,
       "AGENT_DECISION",
       response.content || undefined,
+      undefined,
+      response.usage,
     );
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -236,7 +189,16 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
 
     for (const call of response.toolCalls) {
       if (!allowedTools.has(call.name)) {
-        await recordDisallowedToolCall(runId, call, messages);
+        const { error } = await recordDisallowedTool(
+          runId,
+          call.name,
+          call.arguments,
+        );
+        messages.push({
+          role: "tool",
+          content: JSON.stringify({ error }),
+          toolCallId: call.id,
+        });
         continue;
       }
 
@@ -375,10 +337,13 @@ export async function runAgent(
 
 /**
  * Resumes a run that's WAITING_FOR_APPROVAL after a human decision.
- * Rejecting cancels the run outright; approving continues the loop from
- * the exact conversation state saved when it paused. The step counter
- * resets on resume — a resumed run gets its own fresh MAX_AGENT_STEPS
- * budget, which is a deliberate V1 simplification.
+ * Rejecting cancels the run outright; approving continues from wherever the
+ * run paused. LOOP-mode runs continue the conversation from the exact
+ * snapshot saved when they paused; HARNESS-mode runs have nothing further
+ * to decide once the approved call executes (the pipeline had already
+ * finished its own work before proposing it) — see lib/harness/. The step
+ * counter resets on resume for LOOP mode — a resumed run gets its own
+ * fresh MAX_AGENT_STEPS budget, a deliberate V1 simplification.
  */
 export async function resumeRun(
   runId: string,
@@ -430,30 +395,20 @@ export async function resumeRun(
   const mcpClient = await connectMcpClient(organisationId);
 
   try {
-    const allowedTools = new Set(
-      await agentToolRepository.findToolNamesForAgent(run.agent.id),
-    );
-    const tools = await loadTools(mcpClient, allowedTools);
-    const messages = ((
-      await prisma.agentRun.findUniqueOrThrow({ where: { id: runId } })
-    ).messages ?? []) as unknown as AIMessage[];
-
     // Now that a human has approved it, actually run the call that was
     // held back before it could execute (see requiresApprovalBeforeExecution
-    // in the main loop). A tool-level failure here is handled the same way
-    // as any other tool error — recorded, not fatal — so the agent's next
-    // turn can react to it; only an explicit DENY stops the run outright.
+    // above). A tool-level failure here is handled the same way as any
+    // other tool error — recorded, not fatal — so a LOOP agent's next turn
+    // can react to it; only an explicit DENY stops the run outright.
+    let heldBackFailed = false;
     if (approval?.proposedInput && approval.proposedToolCallId) {
-      const { isError, structuredContent } = await executeToolCall(
+      const { isError, structuredContent } = await executeAndRecordTool(
         runId,
         mcpClient,
-        {
-          id: approval.proposedToolCallId,
-          name: approval.requestedAction,
-          arguments: approval.proposedInput as Record<string, unknown>,
-        },
-        messages,
+        approval.requestedAction,
+        approval.proposedInput as Record<string, unknown>,
       );
+      heldBackFailed = isError;
 
       if (!isError) {
         const policy = evaluatePolicy({
@@ -473,6 +428,32 @@ export async function resumeRun(
         }
       }
     }
+
+    if (run.agent.executionMode === "HARNESS") {
+      // The pipeline already did all its work before proposing this call
+      // (see lib/harness/) — there's no further LLM turn to take, the
+      // held-back call executing (or not) is the last step.
+      const status = heldBackFailed ? "FAILED" : "COMPLETED";
+      await runRepository.markRunStatus(runId, status, {
+        completedAt: new Date(),
+      });
+      await runRepository.addRunStep(
+        runId,
+        heldBackFailed ? "RUN_FAILED" : "RUN_COMPLETED",
+        heldBackFailed
+          ? "The approved action failed to execute."
+          : "Approved action sent.",
+      );
+      return { runId, status };
+    }
+
+    const allowedTools = new Set(
+      await agentToolRepository.findToolNamesForAgent(run.agent.id),
+    );
+    const tools = await loadTools(mcpClient, allowedTools);
+    const messages = ((
+      await prisma.agentRun.findUniqueOrThrow({ where: { id: runId } })
+    ).messages ?? []) as unknown as AIMessage[];
 
     return await runLoop({
       runId,

@@ -1,7 +1,8 @@
 import type { AIProvider } from "@/lib/ai/provider";
 import { getAIProvider } from "@/lib/ai/get-provider";
 import { classifyIntent } from "@/lib/routing/classify-intent";
-import { runAgent } from "@/lib/runtime/agent-runtime";
+import { deterministicClassify } from "@/lib/routing/deterministic-classify";
+import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
 import type { RunResult } from "@/lib/runtime/agent-runtime";
 import * as workflowService from "@/lib/workflows/workflow-service";
 
@@ -11,9 +12,10 @@ export type DispatchResult =
 
 /**
  * Runs a Workflow's classifier against an inbound message and, if it picks
- * a handler, runs that handler through the exact same runAgent()/policy/
- * approval path as any other run — this only decides *which* agent gets
- * called, never how the chosen agent executes once picked. Runs nothing if
+ * a handler, runs that handler — through its own configured execution mode
+ * (lib/harness/ for HARNESS, lib/runtime/agent-runtime.ts for LOOP) — this
+ * only decides *which* agent gets called and *how much it costs to decide
+ * that*, never how the chosen agent executes once picked. Runs nothing if
  * no agent's scope clearly fits (CLAUDE.md #14 — no agent acting outside
  * its stated scope, not even a best guess).
  */
@@ -41,19 +43,31 @@ export async function dispatchInboundMessage(
     return { matched: false, reason: "no_workflow" };
   }
 
-  const matchedAgentId = await classifyIntent(
-    {
-      model: classifierMember.agent.model,
-      instructions: classifierMember.agent.instructions,
-    },
-    input,
-    handlerMembers.map((m) => ({
-      id: m.agent.id,
-      name: m.agent.name,
-      description: m.agent.description,
-    })),
-    provider,
-  );
+  // Fast path: a deterministic keyword match skips the LLM classify call
+  // entirely. Only falls through to it on ambiguity (see
+  // deterministic-classify.ts) — the LLM remains the safety net, not the
+  // primary mechanism.
+  const matchedAgentId =
+    deterministicClassify(
+      input,
+      handlerMembers.map((m) => ({
+        id: m.agent.id,
+        keywords: m.agent.keywords,
+      })),
+    ) ??
+    (await classifyIntent(
+      {
+        model: classifierMember.agent.model,
+        instructions: classifierMember.agent.instructions,
+      },
+      input,
+      handlerMembers.map((m) => ({
+        id: m.agent.id,
+        name: m.agent.name,
+        description: m.agent.description,
+      })),
+      provider,
+    ));
 
   if (!matchedAgentId) {
     return { matched: false, reason: "no_match" };
@@ -64,7 +78,8 @@ export async function dispatchInboundMessage(
     return { matched: false, reason: "no_match" };
   }
 
-  const run = await runAgent(handler.agent, input, provider);
+  const run = await runAgentByExecutionMode(handler.agent, input, provider);
+
   return {
     matched: true,
     agentId: handler.agent.id,

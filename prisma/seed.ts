@@ -21,19 +21,6 @@ async function main() {
     },
   });
 
-  // Shared by every handler agent below, kept as short as the safety
-  // properties allow — this text is resent on every single LLM call in a
-  // run, so its length is a direct, repeated cost (see docs/
-  // production-notes.md "Token/cost optimization"). Covers two directives
-  // learned the hard way during live testing: (1) call the tool, don't
-  // draft text and ask permission — approval is already deterministic at
-  // the runtime level; (2) never send twice — the model has been observed
-  // re-attempting send_email after it already succeeded, which the
-  // approval gate correctly re-blocks, but it's wasted turns/tokens to
-  // prompt for in the first place.
-  const sendEmailInstruction =
-    "Once you've decided a reply is needed, call send_email — never draft it as plain text and ask permission; a human reviews the content before it sends, so just call the tool. Never call send_email more than once per conversation.";
-
   // One "Email Handling" workflow: a classifier agent plus three handler
   // agents. Each handler's `description` doubles as the signal the
   // classifier reads to pick one (lib/routing/classify-intent.ts), and
@@ -57,9 +44,22 @@ async function main() {
     instructions:
       "Classify the inbound message against the specialist agents listed below, based only on their descriptions. If none clearly fit, say so — never guess.",
     model: "qwen2.5:14b",
+    executionMode: "LOOP" as const,
+    pipelineKey: null as string | null,
+    keywords: [] as string[],
     tools: [] as string[],
   };
 
+  // All three handlers run in HARNESS mode: a fixed, coded pipeline (lib/
+  // harness/pipelines/) does the tool sequencing deterministically, and the
+  // model is only asked two narrow questions (extract fields; compose the
+  // reply from resolved facts) — see docs/production-notes.md "Neuro-
+  // symbolic harness". `instructions` below is no longer literally executed
+  // by an LLM for these agents; it stays as human-readable documentation of
+  // what the agent does, shown on its detail page. `keywords` feeds the
+  // deterministic pre-classifier (lib/routing/deterministic-classify.ts) —
+  // General Inquiry Agent deliberately has none, since it's the catch-all
+  // and should only be reached when nothing more specific matched.
   const handlers = [
     {
       id: "seed-agent-quote",
@@ -67,18 +67,11 @@ async function main() {
       description:
         "Handles requests for a price quote — calculating and sending pricing for a specific product and quantity.",
       instructions:
-        // The opening sentence isn't decoration — it's load-bearing. An
-        // earlier trim that removed it (jumping straight to "Extract the
-        // product...") was A/B tested head to head against this version on
-        // the same input: 4/4 failures without it (the model wrote its
-        // tool call as text instead of a real one — see agent-runtime.ts's
-        // looksLikeAbortedToolCall) vs 4/4 successes with it restored. The
-        // rest of the trim (this sentence's own wording, sendEmailInstruction,
-        // the retry/placeholder clause below) tested fine either way.
-        "A customer is asking for a price quote. Extract the product and quantity, use the tools to find the customer, find the product, and calculate the total. " +
-        sendEmailInstruction +
-        " If a tool call fails, retry with corrected arguments — never send a placeholder, estimate, or made-up figure instead of a real result.",
+        "A customer is asking for a price quote. Extract the product and quantity, use the tools to find the customer, find the product, and calculate the total, then send the quote by email.",
       model: "qwen2.5:14b",
+      executionMode: "HARNESS" as const,
+      pipelineKey: "quote",
+      keywords: ["quote", "price", "pricing", "how much", "cost of"],
       tools: [
         "find_customer",
         "find_product",
@@ -93,14 +86,19 @@ async function main() {
       description:
         "Handles complaints or expressions of dissatisfaction from a customer about a product, order, or service they've received.",
       instructions:
-        // Same "restore the opening framing sentence" fix validated for
-        // Quote Agent above — this trim removed the same kind of sentence
-        // ("A customer has a complaint."), so it's restored here too on
-        // the same evidence rather than waiting to independently observe
-        // the same failure mode on this agent.
-        "A customer has a complaint. Acknowledge their concern specifically — reference what they're unhappy about, don't reply generically. Never promise a refund, replacement, discount, or other compensation, and don't try to resolve the complaint yourself — just say a team member will follow up. " +
-        sendEmailInstruction,
+        "A customer has a complaint. Acknowledge their concern specifically, never promise compensation, and let them know a team member will follow up.",
       model: "qwen2.5:14b",
+      executionMode: "HARNESS" as const,
+      pipelineKey: "complaints",
+      keywords: [
+        "complaint",
+        "complain",
+        "unhappy",
+        "disappointed",
+        "damaged",
+        "broken",
+        "refund",
+      ],
       tools: ["find_customer", "send_email"],
     },
     {
@@ -109,9 +107,11 @@ async function main() {
       description:
         "Handles general questions that are not a price quote request and not a complaint — e.g. asking about opening hours, delivery times, or how to place an order.",
       instructions:
-        "Answer the inquiry helpfully and directly. If you lack enough information to answer accurately, say so rather than guessing. " +
-        sendEmailInstruction,
+        "Answer the inquiry helpfully and directly. If there isn't enough information to answer accurately, say so rather than guessing.",
       model: "qwen2.5:14b",
+      executionMode: "HARNESS" as const,
+      pipelineKey: "general",
+      keywords: [] as string[],
       tools: ["find_customer", "send_email"],
     },
   ];
@@ -125,6 +125,9 @@ async function main() {
         description: agent.description,
         instructions: agent.instructions,
         model: agent.model,
+        executionMode: agent.executionMode,
+        pipelineKey: agent.pipelineKey,
+        keywords: agent.keywords,
       },
       create: {
         id: agent.id,
@@ -133,6 +136,9 @@ async function main() {
         description: agent.description,
         instructions: agent.instructions,
         model: agent.model,
+        executionMode: agent.executionMode,
+        pipelineKey: agent.pipelineKey,
+        keywords: agent.keywords,
         status: "ACTIVE",
       },
     });

@@ -21,25 +21,42 @@ async function main() {
     },
   });
 
-  // Shared by every handler agent below: enforces that "done" means calling
-  // the tool, not drafting text and asking permission — approval already
-  // happens deterministically at the runtime level (send_email is always
-  // gated), so the agent doesn't need to ask itself.
+  // Shared by every handler agent below, kept as short as the safety
+  // properties allow — this text is resent on every single LLM call in a
+  // run, so its length is a direct, repeated cost (see docs/
+  // production-notes.md "Token/cost optimization"). Covers two directives
+  // learned the hard way during live testing: (1) call the tool, don't
+  // draft text and ask permission — approval is already deterministic at
+  // the runtime level; (2) never send twice — the model has been observed
+  // re-attempting send_email after it already succeeded, which the
+  // approval gate correctly re-blocks, but it's wasted turns/tokens to
+  // prompt for in the first place.
   const sendEmailInstruction =
-    "Once you've decided a reply is needed, call send_email with that reply as your action — do not just draft the email as plain text and ask whether to send it; calling the tool is how you complete the task. A human always reviews the exact content before it's actually sent, so you don't need to ask permission yourself — just call the tool with your best, complete reply.";
+    "Once you've decided a reply is needed, call send_email — never draft it as plain text and ask permission; a human reviews the content before it sends, so just call the tool. Never call send_email more than once per conversation.";
 
   // One "Email Handling" workflow: a classifier agent plus three handler
   // agents. Each handler's `description` doubles as the signal the
   // classifier reads to pick one (lib/routing/classify-intent.ts), and
   // `tools` is enforced deterministically at runtime (lib/runtime/
   // agent-runtime.ts) — not just a UI hint.
+  //
+  // The classifier deliberately uses the SAME model as the handlers here,
+  // even though classification is a simpler task that would justify a
+  // cheaper model in a hosted deployment (see docs/production-notes.md).
+  // Tried a smaller local model (gemma4:12b) first: on a single-GPU local
+  // Ollama host, a run alternates models on every call (classify, then
+  // hand off to a handler), which forces Ollama to unload/reload between
+  // them — one classification call took 43s instead of ~350ms. That's a
+  // local-hosting artifact, not a real production cost, but it made local
+  // dev/testing unusably slow, so this stays qwen2.5:14b for now.
   const classifier = {
     id: "seed-agent-classifier",
     name: "Inbox Classifier",
     description:
       "Classifies inbound email and routes it to the right specialist agent — not a handler itself.",
     instructions:
-      "You are an email triage classifier for this business. Read the inbound message and decide which single specialist agent should handle it, based only on what each agent is described as handling. Do not guess if none of them are a clear fit.",
+      "Classify the inbound message against the specialist agents listed below, based only on their descriptions. If none clearly fit, say so — never guess.",
+    model: "qwen2.5:14b",
     tools: [] as string[],
   };
 
@@ -50,9 +67,18 @@ async function main() {
       description:
         "Handles requests for a price quote — calculating and sending pricing for a specific product and quantity.",
       instructions:
-        "A customer is asking for a price quote. Extract the product and quantity, use the available tools to look up customer and product details and calculate the total. " +
+        // The opening sentence isn't decoration — it's load-bearing. An
+        // earlier trim that removed it (jumping straight to "Extract the
+        // product...") was A/B tested head to head against this version on
+        // the same input: 4/4 failures without it (the model wrote its
+        // tool call as text instead of a real one — see agent-runtime.ts's
+        // looksLikeAbortedToolCall) vs 4/4 successes with it restored. The
+        // rest of the trim (this sentence's own wording, sendEmailInstruction,
+        // the retry/placeholder clause below) tested fine either way.
+        "A customer is asking for a price quote. Extract the product and quantity, use the tools to find the customer, find the product, and calculate the total. " +
         sendEmailInstruction +
-        " If a tool call fails or doesn't return the number you need, retry it with corrected arguments before replying. Never send an email containing a placeholder, estimate, or made-up figure in place of a real tool result — get the real number first, or explain the problem instead of quoting a price.",
+        " If a tool call fails, retry with corrected arguments — never send a placeholder, estimate, or made-up figure instead of a real result.",
+      model: "qwen2.5:14b",
       tools: [
         "find_customer",
         "find_product",
@@ -67,9 +93,14 @@ async function main() {
       description:
         "Handles complaints or expressions of dissatisfaction from a customer about a product, order, or service they've received.",
       instructions:
-        "A customer has a complaint. Acknowledge their concern politely and specifically — reference what they're actually unhappy about, don't reply generically. " +
-        "Do not promise a refund, replacement, discount, or any other compensation, and do not attempt to resolve the substance of the complaint yourself — just acknowledge it and say a member of the team will follow up. " +
+        // Same "restore the opening framing sentence" fix validated for
+        // Quote Agent above — this trim removed the same kind of sentence
+        // ("A customer has a complaint."), so it's restored here too on
+        // the same evidence rather than waiting to independently observe
+        // the same failure mode on this agent.
+        "A customer has a complaint. Acknowledge their concern specifically — reference what they're unhappy about, don't reply generically. Never promise a refund, replacement, discount, or other compensation, and don't try to resolve the complaint yourself — just say a team member will follow up. " +
         sendEmailInstruction,
+      model: "qwen2.5:14b",
       tools: ["find_customer", "send_email"],
     },
     {
@@ -78,8 +109,9 @@ async function main() {
       description:
         "Handles general questions that are not a price quote request and not a complaint — e.g. asking about opening hours, delivery times, or how to place an order.",
       instructions:
-        "Answer the inquiry helpfully and directly using send_email. If you don't have enough information available to answer accurately, say so honestly rather than guessing. " +
+        "Answer the inquiry helpfully and directly. If you lack enough information to answer accurately, say so rather than guessing. " +
         sendEmailInstruction,
+      model: "qwen2.5:14b",
       tools: ["find_customer", "send_email"],
     },
   ];
@@ -92,6 +124,7 @@ async function main() {
       update: {
         description: agent.description,
         instructions: agent.instructions,
+        model: agent.model,
       },
       create: {
         id: agent.id,
@@ -99,7 +132,7 @@ async function main() {
         name: agent.name,
         description: agent.description,
         instructions: agent.instructions,
-        model: "qwen2.5:14b",
+        model: agent.model,
         status: "ACTIVE",
       },
     });

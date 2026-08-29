@@ -26,7 +26,7 @@ export default async function DashboardPage({
   ]);
 
   const stats: { label: string; value: number; href?: string }[] = [
-    { label: "Agents", value: counts.agents, href: "/agents" },
+    { label: "Agents", value: counts.agents, href: "/workflows" },
     { label: "Active runs", value: counts.running },
     { label: "Completed runs", value: counts.completed },
     { label: "Failed runs", value: counts.failed },
@@ -42,10 +42,10 @@ export default async function DashboardPage({
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Dashboard</h1>
         <Link
-          href="/agents"
+          href="/workflows"
           className="text-sm font-medium text-primary hover:underline"
         >
-          View agents →
+          View workflows →
         </Link>
       </div>
 

@@ -6,3 +6,11 @@ export function findActiveEmailWorkflow(organisationId: string) {
     "EMAIL",
   );
 }
+
+export function listWorkflows(organisationId: string) {
+  return workflowRepository.findWorkflowsByOrganisation(organisationId);
+}
+
+export function getWorkflow(organisationId: string, id: string) {
+  return workflowRepository.findWorkflowById(organisationId, id);
+}

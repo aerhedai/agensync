@@ -30,8 +30,8 @@ export const runGeneralPipeline: Pipeline = async (context) => {
 
   const body = await composeReply(
     context,
-    `${COMPOSE_BASE_INSTRUCTIONS} Answer the customer's question helpfully and directly. If you don't have enough information available to answer accurately, say so honestly and suggest they contact the team directly, rather than guessing. Do not include a subject line, just the body text.`,
-    fields?.question ?? context.input,
+    `${COMPOSE_BASE_INSTRUCTIONS} Acknowledge the customer's question. You have no access to specific business facts — hours, policies, pricing, stock, or anything else not given to you below — so never state a specific time, number, or policy. Say a member of the team will follow up with the exact details, rather than guessing one. Do not include a subject line, just the body text.`,
+    `What they're asking: ${fields?.question ?? context.input}`,
   );
 
   return proposeSendEmail(context, {

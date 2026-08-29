@@ -26,6 +26,9 @@ export interface GenerateRequest {
   model: string;
   messages: AIMessage[];
   tools?: AIToolDefinition[];
+  /** Ask the provider to constrain output to valid JSON (e.g. for the
+   * intent classifier, which has no tool calls to structure its answer). */
+  responseFormat?: "json";
 }
 
 export interface AIResponse {

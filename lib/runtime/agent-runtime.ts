@@ -7,6 +7,7 @@ import type {
   AIToolCallRequest,
   AIToolDefinition,
 } from "@/lib/ai/provider";
+import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import * as approvalRepository from "@/lib/approvals/approval-repository";
 import { prisma } from "@/lib/db/prisma";
 import type { Agent, Prisma } from "@/lib/generated/prisma/client";
@@ -78,16 +79,86 @@ async function executeToolCall(
   return { isError, structuredContent };
 }
 
-async function loadTools(mcpClient: Client): Promise<AIToolDefinition[]> {
+/**
+ * Records a tool call the agent isn't permitted to use as a failed call —
+ * without ever reaching the MCP server — and lets the model see the error
+ * and react (CLAUDE.md #9 step 3: "check the agent has access to the
+ * tool"). Kept distinct from executeToolCall: this path never touches
+ * mcpClient at all, since the call is refused before execution is even
+ * attempted.
+ */
+async function recordDisallowedToolCall(
+  runId: string,
+  call: AIToolCallRequest,
+  messages: AIMessage[],
+): Promise<void> {
+  const error = `This agent does not have access to the "${call.name}" tool.`;
+  const toolCall = await runRepository.createToolCall(
+    runId,
+    call.name,
+    call.arguments,
+    undefined,
+    "FAILED",
+    error,
+  );
+  await runRepository.addRunStep(runId, "TOOL_CALL", call.name, toolCall.id);
+
+  messages.push({
+    role: "tool",
+    content: JSON.stringify({ error }),
+    toolCallId: call.id,
+  });
+}
+
+/**
+ * Detects when the model wrote its intended tool call as plain text (e.g.
+ * `{"name": "send_email", "arguments": {...}}` in `content`) instead of
+ * using the provider's actual tool-calling mechanism — observed live: two
+ * runs marked COMPLETED with an email that was never really sent, because
+ * an empty `toolCalls` array reads as "no more action needed." Narrow and
+ * precise on purpose (valid JSON naming one of *this agent's own* tools)
+ * so it doesn't false-positive on a normal reply that happens to start
+ * with "{".
+ */
+function looksLikeAbortedToolCall(
+  content: string,
+  tools: AIToolDefinition[],
+): boolean {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("{")) return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null) return false;
+
+  const { name, arguments: args } = parsed as Record<string, unknown>;
+  return (
+    typeof name === "string" &&
+    tools.some((tool) => tool.name === name) &&
+    typeof args === "object" &&
+    args !== null
+  );
+}
+
+async function loadTools(
+  mcpClient: Client,
+  allowedTools: Set<string>,
+): Promise<AIToolDefinition[]> {
   const { tools: mcpTools } = await mcpClient.listTools();
-  return mcpTools.map((tool) => ({
-    name: tool.name,
-    description: tool.description ?? "",
-    parameters: (tool.inputSchema ?? {
-      type: "object",
-      properties: {},
-    }) as Record<string, unknown>,
-  }));
+  return mcpTools
+    .filter((tool) => allowedTools.has(tool.name))
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description ?? "",
+      parameters: (tool.inputSchema ?? {
+        type: "object",
+        properties: {},
+      }) as Record<string, unknown>,
+    }));
 }
 
 interface LoopContext {
@@ -96,6 +167,7 @@ interface LoopContext {
   agentModel: string;
   messages: AIMessage[];
   tools: AIToolDefinition[];
+  allowedTools: Set<string>;
   provider: AIProvider;
   mcpClient: Client;
 }
@@ -113,6 +185,7 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
     agentModel,
     messages,
     tools,
+    allowedTools,
     provider,
     mcpClient,
   } = context;
@@ -130,6 +203,21 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
     );
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
+      if (looksLikeAbortedToolCall(response.content, tools)) {
+        // Never claim success when the intended action never actually
+        // ran — this is a visible failure a human can retry, not a
+        // silent no-op dressed up as COMPLETED.
+        await runRepository.markRunStatus(runId, "FAILED", {
+          completedAt: new Date(),
+        });
+        await runRepository.addRunStep(
+          runId,
+          "RUN_FAILED",
+          "The model wrote its intended tool call as plain text instead of a real tool call, so nothing was actually executed. Try running this input again.",
+        );
+        return { runId, status: "FAILED" };
+      }
+
       await runRepository.markRunStatus(runId, "COMPLETED", {
         completedAt: new Date(),
       });
@@ -144,6 +232,11 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
     });
 
     for (const call of response.toolCalls) {
+      if (!allowedTools.has(call.name)) {
+        await recordDisallowedToolCall(runId, call, messages);
+        continue;
+      }
+
       if (requiresApprovalBeforeExecution(call.name)) {
         // Gated *before* execution — this tool mutates external,
         // customer-visible state, and approving after the fact can't
@@ -246,7 +339,10 @@ export async function runAgent(
   const mcpClient = await connectMcpClient(agent.organisationId);
 
   try {
-    const tools = await loadTools(mcpClient);
+    const allowedTools = new Set(
+      await agentToolRepository.findToolNamesForAgent(agent.id),
+    );
+    const tools = await loadTools(mcpClient, allowedTools);
     const messages: AIMessage[] = [
       { role: "system", content: agent.instructions },
       { role: "user", content: input },
@@ -258,6 +354,7 @@ export async function runAgent(
       agentModel: agent.model,
       messages,
       tools,
+      allowedTools,
       provider,
       mcpClient,
     });
@@ -330,7 +427,10 @@ export async function resumeRun(
   const mcpClient = await connectMcpClient(organisationId);
 
   try {
-    const tools = await loadTools(mcpClient);
+    const allowedTools = new Set(
+      await agentToolRepository.findToolNamesForAgent(run.agent.id),
+    );
+    const tools = await loadTools(mcpClient, allowedTools);
     const messages = ((
       await prisma.agentRun.findUniqueOrThrow({ where: { id: runId } })
     ).messages ?? []) as unknown as AIMessage[];
@@ -377,6 +477,7 @@ export async function resumeRun(
       agentModel: run.agent.model,
       messages,
       tools,
+      allowedTools,
       provider,
       mcpClient,
     });

@@ -55,6 +55,15 @@ enum IntegrationProvider {
   GMAIL
 }
 
+enum WorkflowTriggerType {
+  EMAIL
+}
+
+enum WorkflowAgentRole {
+  CLASSIFIER
+  HANDLER
+}
+
 model Organisation {
   id        String   @id @default(cuid())
   name      String
@@ -66,6 +75,7 @@ model Organisation {
   agentRuns    AgentRun[]
   approvals    Approval[]
   integrations Integration[]
+  workflows    Workflow[]
 }
 
 model User {
@@ -95,10 +105,65 @@ model Agent {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id])
-  runs         AgentRun[]
+  organisation        Organisation    @relation(fields: [organisationId], references: [id])
+  runs                AgentRun[]
+  tools               AgentTool[]
+  workflowMemberships WorkflowAgent[]
 
   @@index([organisationId])
+}
+
+// Which MCP tools this agent may use (CLAUDE.md #9 step 3: "check the
+// agent has access to the tool"). Enforced deterministically in
+// lib/runtime/agent-runtime.ts before a tool call ever reaches the MCP
+// server — a tool absent here is refused even if the model asks for it,
+// not just hidden from what's offered.
+model AgentTool {
+  id       String @id @default(cuid())
+  agentId  String
+  toolName String
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@unique([agentId, toolName])
+  @@index([agentId])
+}
+
+// A named, reusable pipeline: one classifier agent that decides which
+// handler agent should deal with an inbound item, plus the handler agents
+// themselves (see lib/routing/dispatch.ts). Kept deliberately simple (a
+// flat classifier + handlers list, not a generic node graph) — CLAUDE.md
+// #24 says not to build a full workflow editor yet — but it's a real,
+// separate entity so a business can eventually have more than one workflow
+// (e.g. a future quote-to-production pipeline) without a schema rewrite.
+model Workflow {
+  id             String              @id @default(cuid())
+  organisationId String
+  name           String
+  description    String
+  trigger        WorkflowTriggerType
+  status         AgentStatus         @default(DRAFT)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organisation Organisation    @relation(fields: [organisationId], references: [id])
+  members      WorkflowAgent[]
+
+  @@index([organisationId])
+}
+
+model WorkflowAgent {
+  id         String            @id @default(cuid())
+  workflowId String
+  agentId    String
+  role       WorkflowAgentRole
+
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+  agent    Agent    @relation(fields: [agentId], references: [id])
+
+  @@unique([workflowId, agentId])
+  @@index([workflowId])
+  @@index([agentId])
 }
 
 model AgentRun {
@@ -157,11 +222,11 @@ model ToolCall {
 }
 
 model Approval {
-  id              String         @id @default(cuid())
-  agentRunId      String
-  organisationId  String
-  requestedAction String
-  reason          String
+  id                 String         @id @default(cuid())
+  agentRunId         String
+  organisationId     String
+  requestedAction    String
+  reason             String
   // The exact tool-call arguments being held back pending approval (e.g.
   // {to, subject, body} for send_email) and the LLM's id for that call, so
   // the approver reviews the real proposed content — not just an abstract
@@ -169,10 +234,10 @@ model Approval {
   // Null for any future post-execution-only approval (see policy-engine.ts).
   proposedInput      Json?
   proposedToolCallId String?
-  status          ApprovalStatus @default(PENDING)
-  requestedAt     DateTime       @default(now())
-  approverId      String?
-  decidedAt       DateTime?
+  status             ApprovalStatus @default(PENDING)
+  requestedAt        DateTime       @default(now())
+  approverId         String?
+  decidedAt          DateTime?
 
   agentRun     AgentRun     @relation(fields: [agentRunId], references: [id])
   organisation Organisation @relation(fields: [organisationId], references: [id])

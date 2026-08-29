@@ -61,6 +61,7 @@ export class OllamaProvider implements AIProvider {
             },
           })),
         }),
+        ...(request.responseFormat === "json" && { format: "json" }),
         stream: false,
       }),
     });

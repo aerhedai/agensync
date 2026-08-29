@@ -80,3 +80,16 @@ export function findRunsByAgent(organisationId: string, agentId: string) {
     orderBy: { createdAt: "desc" },
   });
 }
+
+export function findRunsByAgentIds(
+  organisationId: string,
+  agentIds: string[],
+  take: number,
+) {
+  return prisma.agentRun.findMany({
+    where: { organisationId, agentId: { in: agentIds } },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: { agent: { select: { name: true } } },
+  });
+}

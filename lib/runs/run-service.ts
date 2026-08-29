@@ -7,3 +7,11 @@ export function getRun(organisationId: string, runId: string) {
 export function listRunsForAgent(organisationId: string, agentId: string) {
   return runRepository.findRunsByAgent(organisationId, agentId);
 }
+
+export function listRunsForAgents(
+  organisationId: string,
+  agentIds: string[],
+  take = 10,
+) {
+  return runRepository.findRunsByAgentIds(organisationId, agentIds, take);
+}

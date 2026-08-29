@@ -2,51 +2,36 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluatePolicy,
-  QUOTE_APPROVAL_THRESHOLD_GBP,
+  requiresApprovalBeforeExecution,
 } from "@/lib/policies/policy-engine";
 
+describe("requiresApprovalBeforeExecution", () => {
+  it("requires approval for send_email regardless of arguments — no amount threshold", () => {
+    expect(requiresApprovalBeforeExecution("send_email")).toBe(true);
+  });
+
+  it("does not require approval for read-only lookup/calculation tools", () => {
+    expect(requiresApprovalBeforeExecution("find_customer")).toBe(false);
+    expect(requiresApprovalBeforeExecution("find_product")).toBe(false);
+    expect(requiresApprovalBeforeExecution("check_inventory")).toBe(false);
+    expect(requiresApprovalBeforeExecution("calculate_quote")).toBe(false);
+  });
+});
+
 describe("evaluatePolicy", () => {
-  it("allows a quote below the threshold", () => {
-    const result = evaluatePolicy({
-      toolName: "calculate_quote",
-      toolOutput: { total: QUOTE_APPROVAL_THRESHOLD_GBP - 1 },
-    });
-
-    expect(result.decision).toBe("ALLOW");
-  });
-
-  it("requires approval for a quote at exactly the threshold", () => {
-    const result = evaluatePolicy({
-      toolName: "calculate_quote",
-      toolOutput: { total: QUOTE_APPROVAL_THRESHOLD_GBP },
-    });
-
-    expect(result.decision).toBe("REQUIRE_APPROVAL");
-    expect(result.reason).toMatch(/£10,000/);
-  });
-
-  it("requires approval for a quote above the threshold", () => {
+  it("allows any tool by default — no post-execution rules are active", () => {
     const result = evaluatePolicy({
       toolName: "calculate_quote",
       toolOutput: { total: 27_000 },
     });
 
-    expect(result.decision).toBe("REQUIRE_APPROVAL");
-  });
-
-  it("allows tools other than calculate_quote unconditionally", () => {
-    const result = evaluatePolicy({
-      toolName: "find_customer",
-      toolOutput: { found: true },
-    });
-
     expect(result.decision).toBe("ALLOW");
   });
 
-  it("allows calculate_quote when the total is missing or malformed", () => {
+  it("allows send_email's own output too — its gate is pre-execution, not output-based", () => {
     const result = evaluatePolicy({
-      toolName: "calculate_quote",
-      toolOutput: {},
+      toolName: "send_email",
+      toolOutput: { sent: true },
     });
 
     expect(result.decision).toBe("ALLOW");

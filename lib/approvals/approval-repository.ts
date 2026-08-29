@@ -1,13 +1,23 @@
 import { prisma } from "@/lib/db/prisma";
+import type { Prisma } from "@/lib/generated/prisma/client";
 
 export function createApproval(
   organisationId: string,
   agentRunId: string,
   requestedAction: string,
   reason: string,
+  proposedInput?: Prisma.InputJsonValue,
+  proposedToolCallId?: string,
 ) {
   return prisma.approval.create({
-    data: { organisationId, agentRunId, requestedAction, reason },
+    data: {
+      organisationId,
+      agentRunId,
+      requestedAction,
+      reason,
+      proposedInput,
+      proposedToolCallId,
+    },
   });
 }
 

@@ -66,6 +66,15 @@ export class OllamaProvider implements AIProvider {
           })),
         }),
         ...(request.responseFormat === "json" && { format: "json" }),
+        // Reasoning-capable models (e.g. qwen3.5) generate a hidden chain-
+        // of-thought before their visible answer by default — Ollama
+        // strips it from `content` but still counts it in eval_count.
+        // Measured live: a one-sentence reply cost 476 completion tokens
+        // and several seconds with thinking on, vs 10 tokens and ~150ms
+        // with it off. None of our calls (classification, extraction,
+        // tool-calling) need hidden deliberation, so it's off for all of
+        // them — ignored harmlessly by models that don't support it.
+        think: false,
         stream: false,
       }),
     });

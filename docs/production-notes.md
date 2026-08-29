@@ -55,6 +55,23 @@ That shaped where the actual levers are:
   classifier on the same model as the handlers for now. Revisit this
   specifically when choosing hosted models — it's still the right
   optimization there, just not testable cheaply on this dev setup.
+- **Reasoning ("thinking") models are a hidden cost trap for narrow,
+  atomic calls specifically.** Tried `qwen3.5:4b` (4.7B, smaller than the
+  14B handler model) expecting it to be cheaper/faster for narrow tasks
+  like classification — it was 5–10x _slower_. Root cause, confirmed
+  directly: it generates a hidden chain-of-thought by default that Ollama
+  strips from the visible reply but still counts as real completion
+  tokens — a one-sentence reply cost 476 completion tokens and multiple
+  seconds. `lib/ai/providers/ollama-provider.ts` now always sends
+  `think: false` (harmlessly ignored by models without a thinking mode);
+  the same one-sentence reply then cost 10 tokens and ~150ms. On a hosted
+  provider this isn't just latency — those hidden tokens get billed, so
+  a "cheap" small reasoning model can cost more per call than a bigger
+  non-reasoning one for exactly the atomic tasks a neuro-symbolic harness
+  is meant to make cheap. Whatever model gets chosen for a hosted
+  deployment, check whether it has a reasoning mode and whether it can be
+  disabled the same way, before assuming its per-token price is the
+  whole cost story.
 - **`lib/integrations/gmail/clean-email-body.ts`** strips signature
   blocks and mobile-client footers from the inbound email body before it
   ever reaches a prompt — deliberately conservative (never touches

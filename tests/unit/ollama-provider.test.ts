@@ -31,6 +31,7 @@ describe("OllamaProvider", () => {
         body: JSON.stringify({
           model: "qwen2.5:14b",
           messages: [{ role: "user", content: "ping" }],
+          think: false,
           stream: false,
         }),
       }),
@@ -189,6 +190,30 @@ describe("OllamaProvider", () => {
       },
       { role: "tool", content: '{"found":true}', tool_call_id: "call_0" },
     ]);
+  });
+
+  it("always disables thinking mode — measured live at 476 hidden tokens and multi-second latency for a one-sentence reply with it on, vs 10 tokens/~150ms with it off", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: { role: "assistant", content: "pong" } }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OllamaProvider("http://ollama.test:11434");
+    await provider.generateResponse({
+      model: "qwen3.5:4b",
+      messages: [{ role: "user", content: "ping" }],
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const sentBody = JSON.parse(requestInit.body as string);
+    expect(sentBody.think).toBe(false);
   });
 
   it("throws a descriptive error on a non-ok response", async () => {

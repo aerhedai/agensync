@@ -134,7 +134,17 @@ describe("agent runtime", () => {
     });
   });
 
-  it("pauses the run for approval instead of completing when a quote meets the threshold", async () => {
+  const sendEmailCall = {
+    id: "call_1",
+    name: "send_email",
+    arguments: {
+      to: "customer@example.test",
+      subject: "Your quote",
+      body: "£7,500 for 500 units of Product A.",
+    },
+  };
+
+  it("pauses before send_email executes at all — no amount threshold, always gated", async () => {
     const provider = scriptedProvider([
       {
         content: "",
@@ -142,18 +152,22 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 1000 },
+            arguments: { productId: "prod-1", quantity: 500 },
           },
         ],
       },
-      // Should never be reached — the run must pause before a second
+      {
+        content: "",
+        toolCalls: [sendEmailCall],
+      },
+      // Should never be reached — the run must pause before a third
       // generateResponse call happens.
       { content: "This should not run." },
     ]);
 
     const result = await runAgent(
       agent,
-      "Quote 1000 units of Product A",
+      "Quote 500 units of Product A for customer@example.test",
       provider,
     );
 
@@ -170,24 +184,33 @@ describe("agent runtime", () => {
       "INPUT_RECEIVED",
       "AGENT_DECISION",
       "TOOL_CALL",
+      "AGENT_DECISION",
       "APPROVAL_REQUESTED",
     ]);
 
     const approvalStep = run.steps.find(
       (s) => s.stepType === "APPROVAL_REQUESTED",
     );
-    expect(approvalStep?.detail).toMatch(/£15,000.*£10,000/);
+    expect(approvalStep?.detail).toMatch(/send_email.*approval/i);
+
+    // send_email must never have actually executed before approval.
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: result.runId },
+    });
+    expect(toolCalls.map((t) => t.toolName)).toEqual(["calculate_quote"]);
 
     const approval = await prisma.approval.findFirst({
       where: { agentRunId: result.runId },
     });
     expect(approval).toMatchObject({
       status: "PENDING",
-      requestedAction: "calculate_quote",
+      requestedAction: "send_email",
+      proposedInput: sendEmailCall.arguments,
+      proposedToolCallId: sendEmailCall.id,
     });
   });
 
-  it("resumes and completes a run after approval, continuing the same conversation", async () => {
+  it("resumes and executes send_email only after approval, continuing the same conversation", async () => {
     const pauseProvider = scriptedProvider([
       {
         content: "",
@@ -195,20 +218,21 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 1000 },
+            arguments: { productId: "prod-1", quantity: 500 },
           },
         ],
       },
+      { content: "", toolCalls: [sendEmailCall] },
     ]);
     const paused = await runAgent(
       agent,
-      "Quote 1000 units of Product A",
+      "Quote 500 units of Product A for customer@example.test",
       pauseProvider,
     );
     expect(paused.status).toBe("WAITING_FOR_APPROVAL");
 
     const resumeProvider = scriptedProvider([
-      { content: "Approved — quote sent for £15,000." },
+      { content: "Done — I let the customer know what happened." },
     ]);
     const resumed = await resumeRun(
       paused.runId,
@@ -229,11 +253,23 @@ describe("agent runtime", () => {
       "INPUT_RECEIVED",
       "AGENT_DECISION",
       "TOOL_CALL",
+      "AGENT_DECISION",
       "APPROVAL_REQUESTED",
       "APPROVAL_GRANTED",
+      "TOOL_CALL",
       "AGENT_DECISION",
       "RUN_COMPLETED",
     ]);
+
+    // send_email now genuinely ran (against the real tool, not a mock) —
+    // it fails because this test org has no Gmail integration connected,
+    // which is itself the correct, realistic outcome to assert: the call
+    // only happens post-approval, and a real failure doesn't crash the run.
+    const sentToolCall = await prisma.toolCall.findFirst({
+      where: { agentRunId: paused.runId, toolName: "send_email" },
+    });
+    expect(sentToolCall).toMatchObject({ status: "FAILED" });
+    expect(sentToolCall?.error).toMatch(/gmail is not connected/i);
 
     const approval = await prisma.approval.findFirst({
       where: { agentRunId: paused.runId },
@@ -244,7 +280,7 @@ describe("agent runtime", () => {
     });
   });
 
-  it("cancels the run when the approver rejects it", async () => {
+  it("cancels the run when the approver rejects it — send_email never runs", async () => {
     const pauseProvider = scriptedProvider([
       {
         content: "",
@@ -252,14 +288,15 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 1000 },
+            arguments: { productId: "prod-1", quantity: 500 },
           },
         ],
       },
+      { content: "", toolCalls: [sendEmailCall] },
     ]);
     const paused = await runAgent(
       agent,
-      "Quote 1000 units of Product A",
+      "Quote 500 units of Product A for customer@example.test",
       pauseProvider,
     );
     expect(paused.status).toBe("WAITING_FOR_APPROVAL");
@@ -279,6 +316,11 @@ describe("agent runtime", () => {
     });
     expect(run.status).toBe("CANCELLED");
     expect(run.steps.at(-1)).toMatchObject({ stepType: "RUN_CANCELLED" });
+
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: paused.runId },
+    });
+    expect(toolCalls.map((t) => t.toolName)).toEqual(["calculate_quote"]);
 
     const approval = await prisma.approval.findFirst({
       where: { agentRunId: paused.runId },

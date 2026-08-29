@@ -5,9 +5,22 @@ import { approveRunAction, rejectRunAction } from "@/app/runs/[id]/actions";
 import { RunStatusBadge } from "@/components/runs/run-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import * as approvalService from "@/lib/approvals/approval-service";
 import type { RunStepType } from "@/lib/generated/prisma/client";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import * as runService from "@/lib/runs/run-service";
+
+function isProposedEmail(
+  value: unknown,
+): value is { to: string; subject: string; body: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).to === "string" &&
+    typeof (value as Record<string, unknown>).subject === "string" &&
+    typeof (value as Record<string, unknown>).body === "string"
+  );
+}
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +56,13 @@ export default async function RunDetailPage({
   }
 
   const duration = formatDuration(run.startedAt, run.completedAt);
+  const pendingApproval =
+    run.status === "WAITING_FOR_APPROVAL"
+      ? await approvalService.getPendingApprovalForRun(run.id)
+      : null;
+  const proposedEmail = isProposedEmail(pendingApproval?.proposedInput)
+    ? pendingApproval.proposedInput
+    : null;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
@@ -77,15 +97,42 @@ export default async function RunDetailPage({
               Approval needed
             </CardTitle>
           </CardHeader>
-          <CardContent className="flex items-center gap-3">
-            <form action={approveRunAction.bind(null, run.id)}>
-              <Button type="submit">Approve</Button>
-            </form>
-            <form action={rejectRunAction.bind(null, run.id)}>
-              <Button type="submit" variant="outline">
-                Reject
-              </Button>
-            </form>
+          <CardContent className="flex flex-col gap-4">
+            {proposedEmail ? (
+              <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+                <p className="text-muted-foreground">
+                  This email has not been sent — nothing goes to the customer
+                  until this is approved.
+                </p>
+                <p>
+                  <span className="text-muted-foreground">To: </span>
+                  <span className="font-mono">{proposedEmail.to}</span>
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Subject: </span>
+                  {proposedEmail.subject}
+                </p>
+                <p className="whitespace-pre-wrap border-t border-border pt-2">
+                  {proposedEmail.body}
+                </p>
+              </div>
+            ) : (
+              pendingApproval && (
+                <p className="text-sm text-muted-foreground">
+                  {pendingApproval.reason}
+                </p>
+              )
+            )}
+            <div className="flex items-center gap-3">
+              <form action={approveRunAction.bind(null, run.id)}>
+                <Button type="submit">Approve</Button>
+              </form>
+              <form action={rejectRunAction.bind(null, run.id)}>
+                <Button type="submit" variant="outline">
+                  Reject
+                </Button>
+              </form>
+            </div>
           </CardContent>
         </Card>
       )}

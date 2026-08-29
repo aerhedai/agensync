@@ -4,13 +4,17 @@ import { getAIProvider } from "@/lib/ai/get-provider";
 import type {
   AIMessage,
   AIProvider,
+  AIToolCallRequest,
   AIToolDefinition,
 } from "@/lib/ai/provider";
 import * as approvalRepository from "@/lib/approvals/approval-repository";
 import { prisma } from "@/lib/db/prisma";
 import type { Agent, Prisma } from "@/lib/generated/prisma/client";
 import { connectMcpClient } from "@/lib/mcp/client";
-import { evaluatePolicy } from "@/lib/policies/policy-engine";
+import {
+  evaluatePolicy,
+  requiresApprovalBeforeExecution,
+} from "@/lib/policies/policy-engine";
 import * as runRepository from "@/lib/runs/run-repository";
 
 // Configurable safeguard against infinite agent loops (CLAUDE.md #10).
@@ -30,6 +34,48 @@ function firstErrorText(content: unknown): string {
       (block as { type?: unknown }).type === "text",
   );
   return textBlock?.text ?? "Tool call failed.";
+}
+
+/**
+ * Executes one tool call, records it (ToolCall + TOOL_CALL step), and
+ * appends its result to the conversation. Shared by the main loop (for
+ * tools that don't need prior approval) and resumeRun (for executing a
+ * previously-held-back call after it's approved) so the two can't diverge.
+ */
+async function executeToolCall(
+  runId: string,
+  mcpClient: Client,
+  call: AIToolCallRequest,
+  messages: AIMessage[],
+): Promise<{
+  isError: boolean;
+  structuredContent: Record<string, unknown> | undefined;
+}> {
+  const result = await mcpClient.callTool({
+    name: call.name,
+    arguments: call.arguments,
+  });
+  const isError = result.isError === true;
+  const structuredContent = result.structuredContent as
+    Record<string, unknown> | undefined;
+
+  const toolCall = await runRepository.createToolCall(
+    runId,
+    call.name,
+    call.arguments,
+    structuredContent,
+    isError ? "FAILED" : "SUCCESS",
+    isError ? firstErrorText(result.content) : undefined,
+  );
+  await runRepository.addRunStep(runId, "TOOL_CALL", call.name, toolCall.id);
+
+  messages.push({
+    role: "tool",
+    content: JSON.stringify(structuredContent ?? {}),
+    toolCallId: call.id,
+  });
+
+  return { isError, structuredContent };
 }
 
 async function loadTools(mcpClient: Client): Promise<AIToolDefinition[]> {
@@ -98,38 +144,42 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
     });
 
     for (const call of response.toolCalls) {
-      const result = await mcpClient.callTool({
-        name: call.name,
-        arguments: call.arguments,
-      });
-      const isError = result.isError === true;
+      if (requiresApprovalBeforeExecution(call.name)) {
+        // Gated *before* execution — this tool mutates external,
+        // customer-visible state, and approving after the fact can't
+        // un-send an email. The assistant message above already recorded
+        // this call's proposed arguments in `messages`, so the resume path
+        // has everything it needs to execute exactly this call once
+        // approved (see resumeRun).
+        await runRepository.saveMessages(
+          runId,
+          messages as unknown as Prisma.InputJsonValue,
+        );
+        await runRepository.markRunStatus(runId, "WAITING_FOR_APPROVAL");
+        const reason = `${call.name} requires human approval before it runs.`;
+        await runRepository.addRunStep(runId, "APPROVAL_REQUESTED", reason);
+        await approvalRepository.createApproval(
+          organisationId,
+          runId,
+          call.name,
+          reason,
+          call.arguments as Prisma.InputJsonValue,
+          call.id,
+        );
+        return { runId, status: "WAITING_FOR_APPROVAL" };
+      }
 
-      const toolCall = await runRepository.createToolCall(
+      const { isError, structuredContent } = await executeToolCall(
         runId,
-        call.name,
-        call.arguments,
-        result.structuredContent as Record<string, unknown> | undefined,
-        isError ? "FAILED" : "SUCCESS",
-        isError ? firstErrorText(result.content) : undefined,
+        mcpClient,
+        call,
+        messages,
       );
-      await runRepository.addRunStep(
-        runId,
-        "TOOL_CALL",
-        call.name,
-        toolCall.id,
-      );
-
-      messages.push({
-        role: "tool",
-        content: JSON.stringify(result.structuredContent ?? {}),
-        toolCallId: call.id,
-      });
 
       if (!isError) {
         const policy = evaluatePolicy({
           toolName: call.name,
-          toolOutput:
-            (result.structuredContent as Record<string, unknown>) ?? {},
+          toolOutput: structuredContent ?? {},
         });
 
         if (policy.decision === "REQUIRE_APPROVAL") {
@@ -284,6 +334,42 @@ export async function resumeRun(
     const messages = ((
       await prisma.agentRun.findUniqueOrThrow({ where: { id: runId } })
     ).messages ?? []) as unknown as AIMessage[];
+
+    // Now that a human has approved it, actually run the call that was
+    // held back before it could execute (see requiresApprovalBeforeExecution
+    // in the main loop). A tool-level failure here is handled the same way
+    // as any other tool error — recorded, not fatal — so the agent's next
+    // turn can react to it; only an explicit DENY stops the run outright.
+    if (approval?.proposedInput && approval.proposedToolCallId) {
+      const { isError, structuredContent } = await executeToolCall(
+        runId,
+        mcpClient,
+        {
+          id: approval.proposedToolCallId,
+          name: approval.requestedAction,
+          arguments: approval.proposedInput as Record<string, unknown>,
+        },
+        messages,
+      );
+
+      if (!isError) {
+        const policy = evaluatePolicy({
+          toolName: approval.requestedAction,
+          toolOutput: structuredContent ?? {},
+        });
+        if (policy.decision === "DENY") {
+          await runRepository.markRunStatus(runId, "FAILED", {
+            completedAt: new Date(),
+          });
+          await runRepository.addRunStep(
+            runId,
+            "RUN_FAILED",
+            `Denied by policy: ${policy.reason}`,
+          );
+          return { runId, status: "FAILED" };
+        }
+      }
+    }
 
     return await runLoop({
       runId,

@@ -162,6 +162,13 @@ model Approval {
   organisationId  String
   requestedAction String
   reason          String
+  // The exact tool-call arguments being held back pending approval (e.g.
+  // {to, subject, body} for send_email) and the LLM's id for that call, so
+  // the approver reviews the real proposed content — not just an abstract
+  // "an email will be sent" — and resumeRun can execute precisely this call.
+  // Null for any future post-execution-only approval (see policy-engine.ts).
+  proposedInput      Json?
+  proposedToolCallId String?
   status          ApprovalStatus @default(PENDING)
   requestedAt     DateTime       @default(now())
   approverId      String?

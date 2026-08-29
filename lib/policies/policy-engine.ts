@@ -1,7 +1,5 @@
 // Deterministic, application-code policy checks — the LLM recommends an
 // action, this decides whether it's actually permitted (CLAUDE.md #14).
-// This is why calculate_quote's live-Ollama runs got a wrong threshold call
-// past a human: the model was never the authority, this is.
 
 export type PolicyDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 
@@ -15,36 +13,23 @@ export interface PolicyContext {
   toolOutput: Record<string, unknown>;
 }
 
-export const QUOTE_APPROVAL_THRESHOLD_GBP = 10_000;
+// Tools that mutate external, customer-visible state must never run without
+// a human approving the exact proposed content first — no amount threshold,
+// no exceptions. Once every customer-facing send is gated here, a separate
+// amount-based gate on the tool that merely *calculates* the number (e.g.
+// calculate_quote) is redundant: it would just pause the same run twice for
+// the same underlying decision. Checked before the tool executes (see
+// agent-runtime.ts) — approving after the fact can't un-send an email.
+const REQUIRES_APPROVAL_BEFORE_EXECUTION = new Set(["send_email"]);
 
-function formatGBP(amount: number): string {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-  }).format(amount);
+export function requiresApprovalBeforeExecution(toolName: string): boolean {
+  return REQUIRES_APPROVAL_BEFORE_EXECUTION.has(toolName);
 }
 
-export function evaluatePolicy(context: PolicyContext): PolicyResult {
-  if (context.toolName === "calculate_quote") {
-    const total = context.toolOutput.total;
-    if (typeof total === "number" && total >= QUOTE_APPROVAL_THRESHOLD_GBP) {
-      return {
-        decision: "REQUIRE_APPROVAL",
-        reason: `Quote total ${formatGBP(total)} meets or exceeds the ${formatGBP(QUOTE_APPROVAL_THRESHOLD_GBP)} approval threshold.`,
-      };
-    }
-  }
-
-  // Explicit rather than falling through to the default: send_email mutates
-  // external state, and CLAUDE.md's own policy example table (#14) lists
-  // "Send external email: ALLOW" — the quote amount itself is already
-  // gated above, so sending the resulting email doesn't need a second gate.
-  if (context.toolName === "send_email") {
-    return {
-      decision: "ALLOW",
-      reason: "Sending email is allowed by default policy.",
-    };
-  }
-
+// Post-execution policy: evaluated on a tool's result, for tools with no
+// external side effect (safe to run first, then decide whether the run may
+// continue). No active rules currently — kept as the extension point
+// CLAUDE.md #14 calls for, for whenever a future tool needs one.
+export function evaluatePolicy(_context: PolicyContext): PolicyResult {
   return { decision: "ALLOW", reason: "No policy restricts this action." };
 }

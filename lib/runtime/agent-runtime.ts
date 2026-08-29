@@ -110,47 +110,40 @@ async function recordDisallowedToolCall(
   });
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Detects when the model wrote its intended tool call(s) as plain text
  * instead of using the provider's actual tool-calling mechanism — observed
- * live in two different shapes so far: (1) a single clean JSON object like
- * `{"name": "send_email", "arguments": {...}}`, and (2) one or more
- * fragments wrapped in literal `<tool_call>...</tool_call>` tags (Qwen's
- * own chat-template token for tool calls, leaked into `content` when
- * Ollama's parsing of it breaks down — sometimes with garbled characters
- * before it, sometimes naming multiple tools at once). Both read as "no
- * more action needed" via an empty `toolCalls` array, which used to mark
- * the run COMPLETED with nothing actually done.
+ * live in three different shapes so far, in order discovered: (1) a single
+ * clean JSON object, `{"name": "send_email", "arguments": {...}}`; (2) one
+ * or more fragments wrapped in literal `<tool_call>...</tool_call>` tags
+ * (Qwen's own chat-template token, leaked into `content` when Ollama's
+ * parsing of it breaks down); (3) garbled/non-ASCII text, a stray comma,
+ * *then* a clean JSON object — no tags, doesn't start with "{". All three
+ * read as "no more action needed" via an empty `toolCalls` array, which
+ * used to mark the run COMPLETED with nothing actually done.
  *
- * Two distinct, narrow signals rather than one broad heuristic: a fenced
- * `<tool_call>` tag is unambiguous regardless of what's inside it (a real
- * reply never contains that literal token), and a lone JSON object naming
- * one of *this agent's own* tools is precise enough not to false-positive
- * on a normal reply that happens to start with "{".
+ * Shape (3) is why this doesn't require the *whole* content to be valid
+ * JSON (an earlier version of this check did, and missed it) — instead it
+ * searches for the tool-call shape anywhere in the text: an `"arguments"`
+ * key together with a `"name"` key naming one of *this agent's own* real
+ * tools. That pair is specific enough that an ordinary reply won't produce
+ * it by accident, regardless of what garbage surrounds it.
  */
 function looksLikeAbortedToolCall(
   content: string,
   tools: AIToolDefinition[],
 ): boolean {
   if (/<\/?tool_call>/i.test(content)) return true;
+  if (!/"arguments"\s*:/i.test(content)) return false;
 
-  const trimmed = content.trim();
-  if (!trimmed.startsWith("{")) return false;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return false;
-  }
-  if (typeof parsed !== "object" || parsed === null) return false;
-
-  const { name, arguments: args } = parsed as Record<string, unknown>;
-  return (
-    typeof name === "string" &&
-    tools.some((tool) => tool.name === name) &&
-    typeof args === "object" &&
-    args !== null
+  return tools.some((tool) =>
+    new RegExp(`"name"\\s*:\\s*"${escapeRegExp(tool.name)}"`, "i").test(
+      content,
+    ),
   );
 }
 

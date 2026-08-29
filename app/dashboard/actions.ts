@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { cleanEmailBody } from "@/lib/integrations/gmail/clean-email-body";
 import {
   getGmailMessage,
   listUnreadInboxMessages,
@@ -31,7 +32,7 @@ export async function checkInboxAction() {
 
     for (const summary of unread) {
       const message = await getGmailMessage(accessToken, summary.id);
-      const input = `New email received.\nFrom: ${message.from}\nSubject: ${message.subject}\n\n${message.body}`;
+      const input = `New email received.\nFrom: ${message.from}\nSubject: ${message.subject}\n\n${cleanEmailBody(message.body)}`;
       const result = await dispatchInboundMessage(
         organisation.id,
         "EMAIL",

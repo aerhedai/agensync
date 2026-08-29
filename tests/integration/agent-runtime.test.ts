@@ -423,6 +423,34 @@ describe("agent runtime", () => {
     expect(toolCalls).toHaveLength(0);
   });
 
+  it("fails the run on a third observed shape: garbled prefix + a clean JSON object, no tags", async () => {
+    // Regression test for a third real live-testing failure. This one
+    // doesn't start with "{" (ruling out the original single-JSON check)
+    // and has no <tool_call> tags (ruling out the second fix) — garbled
+    // non-ASCII text, then a comma, then a clean JSON tool call. Only
+    // caught by searching for the "name"/"arguments" pair anywhere in the
+    // content, not requiring the whole string to be valid JSON.
+    const provider = scriptedProvider([
+      {
+        content:
+          'ค旷, {"name": "send_email", "arguments": {"to": "priya@globex.test", "subject": "Re: your order", "body": "..."}}',
+      },
+    ]);
+
+    const result = await runAgent(
+      restrictedAgent,
+      "Handle this complaint",
+      provider,
+    );
+
+    expect(result.status).toBe("FAILED");
+
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: result.runId },
+    });
+    expect(toolCalls).toHaveLength(0);
+  });
+
   it("still completes normally on an ordinary plain-text reply that isn't a disguised tool call", async () => {
     const provider = scriptedProvider([
       { content: "Thanks for reaching out, we'll be in touch shortly." },

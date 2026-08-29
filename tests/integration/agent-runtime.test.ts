@@ -33,6 +33,7 @@ function throwingProvider(message: string): AIProvider {
 describe("agent runtime", () => {
   const organisationId = "test-org-runtime";
   let agent: Agent;
+  let restrictedAgent: Agent;
   let approver: User;
 
   beforeAll(async () => {
@@ -49,6 +50,30 @@ describe("agent runtime", () => {
         status: "ACTIVE",
       },
     });
+    await prisma.agentTool.createMany({
+      data: [
+        "find_customer",
+        "find_product",
+        "check_inventory",
+        "calculate_quote",
+        "send_email",
+      ].map((toolName) => ({ agentId: agent.id, toolName })),
+    });
+
+    restrictedAgent = await prisma.agent.create({
+      data: {
+        organisationId,
+        name: "Restricted Test Agent",
+        description: "Used to test per-agent tool access control.",
+        instructions: "Only ever use the tools you actually have access to.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+    await prisma.agentTool.create({
+      data: { agentId: restrictedAgent.id, toolName: "send_email" },
+    });
+
     approver = await prisma.user.create({
       data: {
         organisationId,
@@ -70,6 +95,9 @@ describe("agent runtime", () => {
       where: { agentRunId: { in: await runIds() } },
     });
     await prisma.agentRun.deleteMany({ where: { organisationId } });
+    await prisma.agentTool.deleteMany({
+      where: { agentId: { in: [agent.id, restrictedAgent.id] } },
+    });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.user.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
@@ -329,6 +357,90 @@ describe("agent runtime", () => {
       status: "REJECTED",
       approverId: approver.id,
     });
+  });
+
+  it("fails the run rather than claiming success when the model writes a tool call as plain text instead of a real one", async () => {
+    // Regression test for a real live-testing failure: the model sometimes
+    // writes its intended call as JSON text in `content` instead of using
+    // the provider's tool-calling mechanism. With an empty toolCalls array
+    // this used to read as "no more action needed" and mark the run
+    // COMPLETED — even though send_email was never actually invoked.
+    const provider = scriptedProvider([
+      {
+        content:
+          '{"name": "send_email", "arguments": {"to": "customer@example.test", "subject": "Hi", "body": "..."}}',
+      },
+    ]);
+
+    const result = await runAgent(
+      agent,
+      "Quote 500 units of Product A",
+      provider,
+    );
+
+    expect(result.status).toBe("FAILED");
+
+    const run = await prisma.agentRun.findUniqueOrThrow({
+      where: { id: result.runId },
+      include: { steps: true },
+    });
+    const failedStep = run.steps.find((s) => s.stepType === "RUN_FAILED");
+    expect(failedStep?.detail).toMatch(
+      /plain text instead of a real tool call/i,
+    );
+
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: result.runId },
+    });
+    expect(toolCalls).toHaveLength(0);
+  });
+
+  it("still completes normally on an ordinary plain-text reply that isn't a disguised tool call", async () => {
+    const provider = scriptedProvider([
+      { content: "Thanks for reaching out, we'll be in touch shortly." },
+    ]);
+
+    const result = await runAgent(
+      agent,
+      "A message needing a plain reply",
+      provider,
+    );
+
+    expect(result.status).toBe("COMPLETED");
+  });
+
+  it("refuses a tool call outside the agent's granted tools without ever reaching the real tool", async () => {
+    const provider = scriptedProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call_0",
+            name: "calculate_quote",
+            arguments: { productId: "prod-1", quantity: 500 },
+          },
+        ],
+      },
+      { content: "I couldn't calculate that." },
+    ]);
+
+    const result = await runAgent(
+      restrictedAgent,
+      "Quote 500 units of Product A",
+      provider,
+    );
+
+    expect(result.status).toBe("COMPLETED");
+
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: result.runId },
+    });
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolName: "calculate_quote",
+      status: "FAILED",
+    });
+    expect(toolCalls[0]?.error).toMatch(/does not have access/i);
   });
 
   it("marks the run FAILED with a tool-error record when a tool call fails", async () => {

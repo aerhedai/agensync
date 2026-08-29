@@ -37,6 +37,48 @@ describe("OllamaProvider", () => {
     );
   });
 
+  it("captures token usage when Ollama reports it", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            message: { role: "assistant", content: "pong" },
+            prompt_eval_count: 42,
+            eval_count: 7,
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OllamaProvider("http://ollama.test:11434");
+    const result = await provider.generateResponse({
+      model: "qwen2.5:14b",
+      messages: [{ role: "user", content: "ping" }],
+    });
+
+    expect(result.usage).toEqual({ promptTokens: 42, completionTokens: 7 });
+  });
+
+  it("omits usage when Ollama doesn't report token counts", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: { role: "assistant", content: "pong" } }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OllamaProvider("http://ollama.test:11434");
+    const result = await provider.generateResponse({
+      model: "qwen2.5:14b",
+      messages: [{ role: "user", content: "ping" }],
+    });
+
+    expect(result.usage).toBeUndefined();
+  });
+
   it("sends tools in Ollama's function-calling shape and parses tool_calls back", async () => {
     const fetchMock = vi.fn(
       async () =>

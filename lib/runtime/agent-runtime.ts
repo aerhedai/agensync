@@ -111,19 +111,29 @@ async function recordDisallowedToolCall(
 }
 
 /**
- * Detects when the model wrote its intended tool call as plain text (e.g.
- * `{"name": "send_email", "arguments": {...}}` in `content`) instead of
- * using the provider's actual tool-calling mechanism — observed live: two
- * runs marked COMPLETED with an email that was never really sent, because
- * an empty `toolCalls` array reads as "no more action needed." Narrow and
- * precise on purpose (valid JSON naming one of *this agent's own* tools)
- * so it doesn't false-positive on a normal reply that happens to start
- * with "{".
+ * Detects when the model wrote its intended tool call(s) as plain text
+ * instead of using the provider's actual tool-calling mechanism — observed
+ * live in two different shapes so far: (1) a single clean JSON object like
+ * `{"name": "send_email", "arguments": {...}}`, and (2) one or more
+ * fragments wrapped in literal `<tool_call>...</tool_call>` tags (Qwen's
+ * own chat-template token for tool calls, leaked into `content` when
+ * Ollama's parsing of it breaks down — sometimes with garbled characters
+ * before it, sometimes naming multiple tools at once). Both read as "no
+ * more action needed" via an empty `toolCalls` array, which used to mark
+ * the run COMPLETED with nothing actually done.
+ *
+ * Two distinct, narrow signals rather than one broad heuristic: a fenced
+ * `<tool_call>` tag is unambiguous regardless of what's inside it (a real
+ * reply never contains that literal token), and a lone JSON object naming
+ * one of *this agent's own* tools is precise enough not to false-positive
+ * on a normal reply that happens to start with "{".
  */
 function looksLikeAbortedToolCall(
   content: string,
   tools: AIToolDefinition[],
 ): boolean {
+  if (/<\/?tool_call>/i.test(content)) return true;
+
   const trimmed = content.trim();
   if (!trimmed.startsWith("{")) return false;
 

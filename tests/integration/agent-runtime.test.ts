@@ -395,6 +395,34 @@ describe("agent runtime", () => {
     expect(toolCalls).toHaveLength(0);
   });
 
+  it("fails the run on a second observed shape: <tool_call> tags leaked into plain text", async () => {
+    // Regression test for a second real live-testing failure — the same
+    // underlying problem (tool call written as text, not a real toolCalls
+    // entry) but in a different shape: Qwen's own <tool_call> chat-template
+    // token leaking into content, sometimes with garbled characters before
+    // it and multiple fragments. This one isn't valid JSON on its own, so
+    // it needs its own detection path rather than the single-object check.
+    const provider = scriptedProvider([
+      {
+        content:
+          '遆\n{"name": "find_product", "arguments": {"query": "Product A"}}\n</tool_call>\n{"name": "find_customer", "arguments": {"query": "buyer@customer-abc.test"}}\n</tool_call>',
+      },
+    ]);
+
+    const result = await runAgent(
+      agent,
+      "Quote 500 units of Product A",
+      provider,
+    );
+
+    expect(result.status).toBe("FAILED");
+
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: result.runId },
+    });
+    expect(toolCalls).toHaveLength(0);
+  });
+
   it("still completes normally on an ordinary plain-text reply that isn't a disguised tool call", async () => {
     const provider = scriptedProvider([
       { content: "Thanks for reaching out, we'll be in touch shortly." },

@@ -12,6 +12,10 @@ interface OllamaToolCall {
 
 interface OllamaChatResponse {
   message: { role: string; content: string; tool_calls?: OllamaToolCall[] };
+  // Ollama's own token counts for this call — prompt_eval_count covers the
+  // input (system + history + tools), eval_count the generated output.
+  prompt_eval_count?: number;
+  eval_count?: number;
 }
 
 function toOllamaMessage(message: AIMessage) {
@@ -73,9 +77,18 @@ export class OllamaProvider implements AIProvider {
     }
 
     const data = (await response.json()) as OllamaChatResponse;
+    const hasUsage =
+      typeof data.prompt_eval_count === "number" &&
+      typeof data.eval_count === "number";
     return {
       content: data.message.content,
       toolCalls: fromOllamaToolCalls(data.message.tool_calls),
+      ...(hasUsage && {
+        usage: {
+          promptTokens: data.prompt_eval_count!,
+          completionTokens: data.eval_count!,
+        },
+      }),
     };
   }
 }

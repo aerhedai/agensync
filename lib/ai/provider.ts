@@ -31,9 +31,16 @@ export interface GenerateRequest {
   responseFormat?: "json";
 }
 
+export interface AITokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
 export interface AIResponse {
   content: string;
   toolCalls?: AIToolCallRequest[];
+  /** Omitted if the provider doesn't report usage for this call. */
+  usage?: AITokenUsage;
 }
 
 export interface AIProvider {

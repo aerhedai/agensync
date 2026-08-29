@@ -31,9 +31,17 @@ export function addRunStep(
   stepType: RunStepType,
   detail?: string,
   toolCallId?: string,
+  usage?: { promptTokens: number; completionTokens: number },
 ) {
   return prisma.runStep.create({
-    data: { agentRunId: runId, stepType, detail, toolCallId },
+    data: {
+      agentRunId: runId,
+      stepType,
+      detail,
+      toolCallId,
+      promptTokens: usage?.promptTokens,
+      completionTokens: usage?.completionTokens,
+    },
   });
 }
 

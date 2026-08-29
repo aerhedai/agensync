@@ -56,6 +56,14 @@ export default async function RunDetailPage({
   }
 
   const duration = formatDuration(run.startedAt, run.completedAt);
+  const tokenTotals = run.steps.reduce(
+    (totals, step) => ({
+      prompt: totals.prompt + (step.promptTokens ?? 0),
+      completion: totals.completion + (step.completionTokens ?? 0),
+    }),
+    { prompt: 0, completion: 0 },
+  );
+  const hasTokenUsage = tokenTotals.prompt > 0 || tokenTotals.completion > 0;
   const pendingApproval =
     run.status === "WAITING_FOR_APPROVAL"
       ? await approvalService.getPendingApprovalForRun(run.id)
@@ -169,6 +177,12 @@ export default async function RunDetailPage({
                       </span>
                     )
                   )}
+                  {step.promptTokens != null && (
+                    <span className="text-xs text-muted-foreground">
+                      {step.promptTokens} prompt + {step.completionTokens}{" "}
+                      completion tokens
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
@@ -176,11 +190,15 @@ export default async function RunDetailPage({
         </CardContent>
       </Card>
 
-      {duration && (
-        <p className="text-sm text-muted-foreground">
-          Completed in: {duration}
-        </p>
-      )}
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        {duration && <p>Completed in: {duration}</p>}
+        {hasTokenUsage && (
+          <p>
+            Tokens used: {tokenTotals.prompt} prompt + {tokenTotals.completion}{" "}
+            completion = {tokenTotals.prompt + tokenTotals.completion} total
+          </p>
+        )}
+      </div>
     </div>
   );
 }

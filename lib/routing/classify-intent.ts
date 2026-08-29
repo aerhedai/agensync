@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getAIProvider } from "@/lib/ai/get-provider";
+import { parseJsonResponse } from "@/lib/ai/json-extraction";
 import type { AIProvider } from "@/lib/ai/provider";
 
 export interface ClassifierAgent {
@@ -17,23 +18,6 @@ export interface AgentCandidate {
 const classificationSchema = z.object({
   agentId: z.string().nullable(),
 });
-
-function stripCodeFence(text: string): string {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  return fenced?.[1] ?? text;
-}
-
-function parseClassifierOutput(text: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripCodeFence(text.trim()));
-  } catch {
-    return null;
-  }
-
-  const result = classificationSchema.safeParse(parsed);
-  return result.success ? result.data.agentId : null;
-}
 
 /**
  * Decides which single handler agent, if any, should deal with an inbound
@@ -77,7 +61,8 @@ export async function classifyIntent(
     ],
   });
 
-  const agentId = parseClassifierOutput(response.content);
+  const parsed = parseJsonResponse(response.content, classificationSchema);
+  const agentId = parsed?.agentId ?? null;
   if (agentId === null) return null;
 
   return candidates.some((c) => c.id === agentId) ? agentId : null;

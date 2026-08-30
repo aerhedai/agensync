@@ -68,6 +68,79 @@ which have side effects) worth building once it can be scoped to read-only
 tools behind real per-organisation authentication, with `send_email`
 deliberately kept off whatever gets exposed.
 
+## Phase C: hosting, database, and a real production Ollama path
+
+Deployed at https://agensync.vercel.app (Vercel, GitHub-connected — pushes
+to `main` auto-deploy) with a Neon Postgres database provisioned via
+Vercel's managed integration (`prisma migrate deploy` applied against
+Neon's direct/unpooled connection string; a single connection string is
+used for both migrations and runtime for now — Neon's separate pooled
+connection string is documented as available but not wired in, since
+connection-pool exhaustion isn't a real problem yet at this scale;
+revisit if it becomes one, per CLAUDE.md's "don't add infrastructure
+before there's a demonstrated need").
+
+**Ollama stays the AI provider in production, reached through an
+auth-gated proxy, not a hosted commercial API.** Vercel's servers can't
+reach the Tailscale-only network the Ollama host lives on directly.
+Rather than switch providers, `scripts/ollama-auth-proxy.py` runs
+directly on the Ollama host (currently a Windows PC) as a Scheduled Task,
+fronted by `tailscale funnel --bg 11435` — turning Ollama into a real
+public HTTPS URL. Ollama itself has zero built-in authentication, so the
+proxy is what actually protects it: it only forwards a request to Ollama
+if it carries the correct `Authorization: Bearer <OLLAMA_PROXY_SECRET>`
+header, rejecting everything else with 401 before Ollama ever sees it.
+`lib/ai/providers/ollama-provider.ts` sends that header only when
+`OLLAMA_PROXY_SECRET` is set — local dev leaves it unset and talks to
+Ollama directly, since there's no public exposure to protect against
+there.
+
+Deliberate simplifications in this setup, worth knowing about before it
+needs to scale or harden further:
+
+- **One shared secret, not per-caller credentials.** Fine for "my own
+  Vercel deployment talks to my own Ollama instance" — would need real
+  per-caller auth (not a single bearer token) before this proxy fronted
+  traffic from more than one trusted caller.
+- **The proxy has no rate limiting.** Tailscale Funnel gives TLS and a
+  stable public hostname, not traffic shaping. If the shared secret ever
+  leaked, nothing would stop it from being used to run unlimited
+  inference against the host GPU. Rotating `OLLAMA_PROXY_SECRET` (in both
+  Vercel's env vars and the host's `PROXY_SHARED_SECRET` env var, then
+  restarting the `AgensyncOllamaProxy` scheduled task) is the immediate
+  fix if that's ever suspected.
+- **A real bug found by live testing, not by inspection**: the proxy's
+  `log_message` override originally still called `super().log_message()`.
+  Launched via Task Scheduler, the proxy runs under `pythonw.exe` (no
+  console), and `BaseHTTPRequestHandler`'s default logging writes to
+  `sys.stderr` after every request — under `pythonw.exe` that's missing
+  entirely, not just redirected, and the write crashed the handler thread
+  mid-response. The socket-level TCP handshake succeeded every time
+  (confirmed directly with `Test-NetConnection`), masking the real cause;
+  only an HTTP-level request consistently came back as a connection reset.
+  Fixed by making `log_message` a true no-op. Same class of "looks like a
+  network/firewall problem, is actually an stdio problem" issue worth
+  remembering if this proxy is ever rewritten.
+- **This is a stopgap, not the final AI provider story.** The real fix —
+  swapping to a hosted commercial API for production while keeping Ollama
+  for local dev — is already possible with zero architecture change
+  (`AIProvider` was built provider-agnostic from the start) whenever that
+  trade-off is worth making. This setup exists specifically to keep using
+  Ollama for now without blocking the rest of Phase C on that decision.
+
+**Gmail in production**: the OAuth client's authorized redirect URIs need
+`https://agensync.vercel.app/api/integrations/gmail/callback` added
+manually in Google Cloud Console (Credentials page) — not something the
+Vercel CLI or this repo can do on their own. Vercel's `GOOGLE_REDIRECT_URI`
+is set to that URL for Production only; Preview deployments get a new
+random URL per deployment that's never pre-registered with Google, so
+Gmail OAuth is left unconfigured there (attempting to connect on a Preview
+deployment will fail — expected, not a bug). The OAuth consent screen
+should also be checked: if it's still in "Testing" mode, only explicitly
+added test-user Google accounts can complete the OAuth flow at all, which
+is fine for a single-operator deployment but would block anyone else's
+Gmail from connecting until the app is submitted for verification.
+
 ## Token/cost optimization
 
 Measured live against real Ollama (see the agent-runtime commit history):

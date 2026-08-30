@@ -10,6 +10,6 @@ import { env } from "@/lib/env";
 export function getAIProvider(): AIProvider {
   switch (env.AI_PROVIDER) {
     case "ollama":
-      return new OllamaProvider(env.OLLAMA_BASE_URL);
+      return new OllamaProvider(env.OLLAMA_BASE_URL, env.OLLAMA_PROXY_SECRET);
   }
 }

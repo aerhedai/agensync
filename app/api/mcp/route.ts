@@ -1,28 +1,24 @@
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-
-import { createMcpServer } from "@/lib/mcp/server";
-import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
-
-// Always live — an MCP tool call must never be cached.
-export const dynamic = "force-dynamic";
-
-async function handleMcpRequest(request: Request): Promise<Response> {
-  // No auth/session exists yet, so there's no per-request org to read from
-  // a token — this HTTP endpoint is the one place that placeholder
-  // (getCurrentOrganisation) belongs, same as any other unauthenticated
-  // entry point in the app. Everything below this line receives
-  // organisationId explicitly, never re-resolves it.
-  const organisation = await getCurrentOrganisation();
-  const server = createMcpServer(organisation.id);
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-  await server.connect(transport);
-  return transport.handleRequest(request);
+// Disabled. This route exposed Agensync's MCP tool server (find_customer,
+// find_product, check_inventory, calculate_quote, send_email) directly over
+// HTTP with no authentication, and — worse — no gating: the approval-gate
+// and audit-trail logic (lib/runtime/tool-execution.ts's
+// gateAndExecuteTool) only runs in the in-process client wrapper
+// (lib/mcp/client.ts's connectMcpClient), never on the raw MCP server
+// itself. Any caller reaching this endpoint could invoke send_email
+// directly — a real email sent from the org's connected Gmail account —
+// with no approval prompt and no ToolCall/RunStep row, completely
+// bypassing the app's core safety design.
+//
+// Nothing in the app calls this route internally; it was unused
+// scaffolding. Left disabled rather than deleted: there's a real future
+// use case (letting an external AI assistant like Claude Desktop connect
+// via MCP for read-only lookups) worth building properly once real
+// per-org authentication exists to protect it, and once the mutating
+// tools (send_email) are deliberately kept off whatever gets exposed —
+// re-enabling this as-is is not safe.
+export async function GET(): Promise<Response> {
+  return new Response("Not found", { status: 404 });
 }
 
-export {
-  handleMcpRequest as DELETE,
-  handleMcpRequest as GET,
-  handleMcpRequest as POST,
-};
+export const POST = GET;
+export const DELETE = GET;

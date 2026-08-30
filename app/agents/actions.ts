@@ -12,11 +12,23 @@ export type AgentFormState = {
 };
 
 function parseAgentForm(formData: FormData) {
+  const keywordsRaw = formData.get("keywords");
+  const keywords =
+    typeof keywordsRaw === "string"
+      ? keywordsRaw
+          .split(",")
+          .map((k) => k.trim())
+          .filter((k) => k.length > 0)
+      : [];
+
   return agentInputSchema.safeParse({
     name: formData.get("name"),
     description: formData.get("description"),
     instructions: formData.get("instructions"),
     model: formData.get("model"),
+    replySubjectTemplate: formData.get("replySubjectTemplate"),
+    keywords,
+    toolNames: formData.getAll("toolNames"),
   });
 }
 

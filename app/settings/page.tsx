@@ -1,4 +1,5 @@
 import { disconnectGmailAction } from "@/app/settings/actions";
+import { BusinessProfileForm } from "@/components/settings/business-profile-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GMAIL_INBOX_LABEL } from "@/lib/integrations/gmail/client";
@@ -26,6 +27,20 @@ export default async function SettingsPage({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Settings</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Business profile
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <BusinessProfileForm
+            name={organisation.name}
+            currency={organisation.currency}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

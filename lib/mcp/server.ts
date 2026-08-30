@@ -1,9 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { calculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
-import { checkInventoryTool } from "@/lib/mcp/tools/check-inventory";
-import { findCustomerTool } from "@/lib/mcp/tools/find-customer";
-import { findProductTool } from "@/lib/mcp/tools/find-product";
+import { createCalculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
+import { createCheckInventoryTool } from "@/lib/mcp/tools/check-inventory";
+import { createFindCustomerTool } from "@/lib/mcp/tools/find-customer";
+import { createFindProductTool } from "@/lib/mcp/tools/find-product";
 import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
 
 // The four Phase 5 tools are read-only lookups/calculations. send_email
@@ -23,6 +23,7 @@ const readOnly = { readOnlyHint: true };
 export function createMcpServer(organisationId: string): McpServer {
   const server = new McpServer({ name: "agensync-tools", version: "0.1.0" });
 
+  const findCustomerTool = createFindCustomerTool(organisationId);
   server.registerTool(
     findCustomerTool.name,
     {
@@ -34,6 +35,7 @@ export function createMcpServer(organisationId: string): McpServer {
     findCustomerTool.handler,
   );
 
+  const findProductTool = createFindProductTool(organisationId);
   server.registerTool(
     findProductTool.name,
     {
@@ -45,6 +47,7 @@ export function createMcpServer(organisationId: string): McpServer {
     findProductTool.handler,
   );
 
+  const checkInventoryTool = createCheckInventoryTool(organisationId);
   server.registerTool(
     checkInventoryTool.name,
     {
@@ -56,6 +59,7 @@ export function createMcpServer(organisationId: string): McpServer {
     checkInventoryTool.handler,
   );
 
+  const calculateQuoteTool = createCalculateQuoteTool(organisationId);
   server.registerTool(
     calculateQuoteTool.name,
     {

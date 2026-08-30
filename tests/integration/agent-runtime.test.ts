@@ -40,6 +40,26 @@ describe("agent runtime", () => {
     await prisma.organisation.create({
       data: { id: organisationId, name: "Runtime Test Org" },
     });
+    // Real per-org catalog row the calculate_quote tool call below resolves
+    // against — replaces the old shared lib/mcp/mock-data.ts arrays.
+    await prisma.product.create({
+      data: {
+        id: "runtime-prod-1",
+        organisationId,
+        sku: "TEST-WIDGET-A",
+        name: "Product A",
+        unitPrice: 15,
+        stockQuantity: 700,
+      },
+    });
+    await prisma.customer.create({
+      data: {
+        organisationId,
+        name: "Test Customer",
+        email: "buyer@customer-abc.test",
+        company: "Customer ABC Ltd",
+      },
+    });
     agent = await prisma.agent.create({
       data: {
         organisationId,
@@ -100,6 +120,8 @@ describe("agent runtime", () => {
     });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.user.deleteMany({ where: { organisationId } });
+    await prisma.product.deleteMany({ where: { organisationId } });
+    await prisma.customer.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -120,7 +142,7 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 500 },
+            arguments: { productId: "runtime-prod-1", quantity: 500 },
           },
         ],
       },
@@ -180,7 +202,7 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 500 },
+            arguments: { productId: "runtime-prod-1", quantity: 500 },
           },
         ],
       },
@@ -246,7 +268,7 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 500 },
+            arguments: { productId: "runtime-prod-1", quantity: 500 },
           },
         ],
       },
@@ -316,7 +338,7 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 500 },
+            arguments: { productId: "runtime-prod-1", quantity: 500 },
           },
         ],
       },
@@ -473,7 +495,7 @@ describe("agent runtime", () => {
           {
             id: "call_0",
             name: "calculate_quote",
-            arguments: { productId: "prod-1", quantity: 500 },
+            arguments: { productId: "runtime-prod-1", quantity: 500 },
           },
         ],
       },
@@ -533,7 +555,7 @@ describe("agent runtime", () => {
         {
           id: "call_0",
           name: "check_inventory",
-          arguments: { productId: "prod-1" },
+          arguments: { productId: "runtime-prod-1" },
         },
       ],
     };

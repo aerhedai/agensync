@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 import { composeReply } from "@/lib/harness/compose-reply";
-import { COMPOSE_BASE_INSTRUCTIONS } from "@/lib/harness/compose-instructions";
+import {
+  composeBaseInstructions,
+  withBusinessGuidance,
+} from "@/lib/harness/compose-instructions";
+import { currencySymbol } from "@/lib/currency/currency-symbols";
 import { extractFields } from "@/lib/harness/extract-fields";
 import {
   callTool,
@@ -98,17 +102,21 @@ export const runQuotePipeline: Pipeline = async (context) => {
     );
   }
 
+  const symbol = currencySymbol(quote.currency);
   const body = await composeReply(
     context,
-    `${COMPOSE_BASE_INSTRUCTIONS} Write a short, professional email body quoting a customer a price, given the facts below. Do not include a subject line, just the body text.`,
+    withBusinessGuidance(
+      `${composeBaseInstructions(context.organisation.name)} Write a short, professional email body quoting a customer a price, given the facts below. Do not include a subject line, just the body text.`,
+      context.agent,
+    ),
     [
       customerName
         ? `Customer: ${customerName}`
         : 'Customer name: unknown — do not invent or placeholder one, open with "Hello,"',
       `Product: ${product.name}`,
       `Quantity: ${fields.quantity}`,
-      `Unit price: £${quote.unitPrice}`,
-      `Total: £${quote.total}`,
+      `Unit price: ${symbol}${quote.unitPrice}`,
+      `Total: ${symbol}${quote.total}`,
     ]
       .filter((line): line is string => line !== null)
       .join("\n"),

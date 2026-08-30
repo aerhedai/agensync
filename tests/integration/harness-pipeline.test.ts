@@ -31,7 +31,27 @@ describe("harness pipeline", () => {
 
   beforeAll(async () => {
     await prisma.organisation.create({
-      data: { id: organisationId, name: "Harness Test Org" },
+      data: { id: organisationId, name: "Harness Test Org", currency: "GBP" },
+    });
+    // Real per-org catalog rows the pipeline's real find_product/
+    // find_customer/check_inventory/calculate_quote tool calls resolve
+    // against — replaces the old shared lib/mcp/mock-data.ts arrays.
+    await prisma.product.create({
+      data: {
+        organisationId,
+        sku: "TEST-WIDGET-A",
+        name: "Product A",
+        unitPrice: 15,
+        stockQuantity: 700,
+      },
+    });
+    await prisma.customer.create({
+      data: {
+        organisationId,
+        name: "Test Customer",
+        email: "buyer@customer-abc.test",
+        company: "Customer ABC Ltd",
+      },
     });
 
     quoteAgent = await prisma.agent.create({
@@ -100,6 +120,8 @@ describe("harness pipeline", () => {
     });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.user.deleteMany({ where: { organisationId } });
+    await prisma.product.deleteMany({ where: { organisationId } });
+    await prisma.customer.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });

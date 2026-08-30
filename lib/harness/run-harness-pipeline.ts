@@ -4,6 +4,7 @@ import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import type { Agent } from "@/lib/generated/prisma/client";
 import { getPipeline } from "@/lib/harness/pipelines";
 import { connectMcpClient } from "@/lib/mcp/client";
+import * as organisationRepository from "@/lib/organisations/organisation-repository";
 import * as runRepository from "@/lib/runs/run-repository";
 import type { RunResult } from "@/lib/runtime/agent-runtime";
 
@@ -41,10 +42,17 @@ export async function runHarnessPipeline(
     const allowedTools = new Set(
       await agentToolRepository.findToolNamesForAgent(agent.id),
     );
+    const organisation = await organisationRepository.findOrganisationById(
+      agent.organisationId,
+    );
+    if (!organisation) {
+      throw new Error(`Organisation "${agent.organisationId}" not found.`);
+    }
 
     return await pipeline({
       runId: run.id,
       organisationId: agent.organisationId,
+      organisation,
       agent,
       input,
       mcpClient,

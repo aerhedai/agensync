@@ -79,6 +79,11 @@ enum AgentExecutionMode {
 model Organisation {
   id        String   @id @default(cuid())
   name      String
+  // ISO 4217 code (e.g. "GBP", "USD"). Plain string, not an enum — ISO 4217
+  // has ~180 codes; a Postgres enum would need a migration per new currency
+  // supported. What the app actually accepts is constrained at the
+  // application layer instead (lib/currency/currency-symbols.ts).
+  currency  String   @default("GBP")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -88,6 +93,48 @@ model Organisation {
   approvals    Approval[]
   integrations Integration[]
   workflows    Workflow[]
+  products     Product[]
+  customers    Customer[]
+}
+
+// Real, org-scoped catalog data, replacing the old lib/mcp/mock-data.ts
+// shared in-memory arrays — each business gets its own products, not a
+// hardcoded demo catalog. stockQuantity is folded directly onto Product
+// rather than a separate Inventory model: the old mock data already had a
+// strict 1:1 product-to-quantity relationship with no second consumer that
+// would justify splitting it out (CLAUDE.md #17 — no unnecessary entities).
+model Product {
+  id             String   @id @default(cuid())
+  organisationId String
+  sku            String
+  name           String
+  // Money — Decimal (Postgres numeric), never Float. A price that
+  // round-trips through IEEE-754 float arithmetic can drift; Decimal
+  // (decimal.js under Prisma) is the standard mapping for currency values.
+  unitPrice      Decimal  @db.Decimal(10, 2)
+  stockQuantity  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, sku])
+  @@index([organisationId])
+}
+
+model Customer {
+  id             String   @id @default(cuid())
+  organisationId String
+  name           String
+  email          String
+  company        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, email])
+  @@index([organisationId])
 }
 
 model User {
@@ -127,6 +174,11 @@ model Agent {
   // these words/phrases and no other agent's keywords also match, routing
   // skips the LLM call entirely. Empty means "always ask the classifier."
   keywords      String[]           @default([])
+  // HARNESS-only: overrides a pipeline's hardcoded default reply subject
+  // line (e.g. Complaints' "Re: your recent experience"). Null means "use
+  // the pipeline's default" — existing agents with no template set keep
+  // behaving exactly as before this field existed.
+  replySubjectTemplate String?
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
   runs                AgentRun[]

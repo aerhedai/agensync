@@ -21,7 +21,10 @@ export default async function EditAgentPage({
       <h1 className="text-xl font-semibold">Edit {agent.name}</h1>
       <AgentForm
         action={updateAgentAction.bind(null, agent.id)}
-        agent={agent}
+        agent={{
+          ...agent,
+          toolNames: agent.tools.map((t) => t.toolName),
+        }}
         submitLabel="Save changes"
       />
     </div>

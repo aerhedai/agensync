@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { composeReply } from "@/lib/harness/compose-reply";
-import { COMPOSE_BASE_INSTRUCTIONS } from "@/lib/harness/compose-instructions";
+import {
+  composeBaseInstructions,
+  withBusinessGuidance,
+} from "@/lib/harness/compose-instructions";
 import { extractFields } from "@/lib/harness/extract-fields";
 import { extractEmailDeterministically } from "@/lib/harness/pipeline-helpers";
 import { failPipeline } from "@/lib/harness/pipeline-failure";
@@ -30,13 +33,16 @@ export const runGeneralPipeline: Pipeline = async (context) => {
 
   const body = await composeReply(
     context,
-    `${COMPOSE_BASE_INSTRUCTIONS} Acknowledge the customer's question. You have no access to specific business facts — hours, policies, pricing, stock, or anything else not given to you below — so never state a specific time, number, or policy. Say a member of the team will follow up with the exact details, rather than guessing one. Do not include a subject line, just the body text.`,
+    withBusinessGuidance(
+      `${composeBaseInstructions(context.organisation.name)} Acknowledge the customer's question. You have no access to specific business facts — hours, policies, pricing, stock, or anything else not given to you below — so never state a specific time, number, or policy. Say a member of the team will follow up with the exact details, rather than guessing one. Do not include a subject line, just the body text.`,
+      context.agent,
+    ),
     `What they're asking: ${fields?.question ?? context.input}`,
   );
 
   return proposeSendEmail(context, {
     to: email,
-    subject: "Re: your inquiry",
+    subject: context.agent.replySubjectTemplate ?? "Re: your inquiry",
     body,
   });
 };

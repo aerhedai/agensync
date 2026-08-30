@@ -1,12 +1,18 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 import type { AIProvider } from "@/lib/ai/provider";
-import type { Agent } from "@/lib/generated/prisma/client";
+import type { Agent, Organisation } from "@/lib/generated/prisma/client";
 import type { RunResult } from "@/lib/runtime/agent-runtime";
 
 export interface PipelineContext {
   runId: string;
   organisationId: string;
+  // Fetched once per run in run-harness-pipeline.ts, not per pipeline
+  // step — one extra query per run, used for the compose sign-off
+  // (organisation.name) and available for any other per-org fact a
+  // pipeline needs (e.g. currency, though quote-pipeline currently sources
+  // that from calculate_quote's own result instead — see that file).
+  organisation: Organisation;
   agent: Agent;
   input: string;
   mcpClient: Client;

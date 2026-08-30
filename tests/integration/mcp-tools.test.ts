@@ -2,16 +2,41 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { prisma } from "@/lib/db/prisma";
 import { createMcpServer } from "@/lib/mcp/server";
 
 // Real MCP protocol round trip (list + call, real Zod validation, real
 // handlers) over an in-memory transport pair — no network, deterministic,
 // CI-safe, but not a mock: this is the actual client/server/protocol code.
+// The four lookup tools are now DB-backed per organisation (no more shared
+// lib/mcp/mock-data.ts), so each test run gets its own fixture rows.
 describe("MCP tool server", () => {
   let client: Client;
   const organisationId = "test-org-mcp-tools";
 
   beforeEach(async () => {
+    await prisma.organisation.create({
+      data: { id: organisationId, name: "MCP Tools Test Org", currency: "GBP" },
+    });
+    await prisma.product.create({
+      data: {
+        id: "prod-1",
+        organisationId,
+        sku: "WIDGET-A",
+        name: "Product A",
+        unitPrice: 15,
+        stockQuantity: 700,
+      },
+    });
+    await prisma.customer.create({
+      data: {
+        organisationId,
+        name: "Customer ABC",
+        email: "buyer@customer-abc.test",
+        company: "Customer ABC Ltd",
+      },
+    });
+
     const server = createMcpServer(organisationId);
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
@@ -25,6 +50,9 @@ describe("MCP tool server", () => {
 
   afterEach(async () => {
     await client.close();
+    await prisma.product.deleteMany({ where: { organisationId } });
+    await prisma.customer.deleteMany({ where: { organisationId } });
+    await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
   it("lists all five tools", async () => {

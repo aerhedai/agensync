@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import type { AgentInput } from "@/lib/agents/schemas";
+import type { AgentColumnsInput } from "@/lib/agents/schemas";
 
 export function findAgentsByOrganisation(organisationId: string) {
   return prisma.agent.findMany({
@@ -12,10 +12,11 @@ export function findAgentsByOrganisation(organisationId: string) {
 export function findAgentById(organisationId: string, id: string) {
   return prisma.agent.findFirst({
     where: { id, organisationId },
+    include: { tools: true },
   });
 }
 
-export function createAgent(organisationId: string, input: AgentInput) {
+export function createAgent(organisationId: string, input: AgentColumnsInput) {
   return prisma.agent.create({
     data: { ...input, organisationId },
   });
@@ -24,7 +25,7 @@ export function createAgent(organisationId: string, input: AgentInput) {
 export function updateAgent(
   organisationId: string,
   id: string,
-  input: AgentInput,
+  input: AgentColumnsInput,
 ) {
   return prisma.agent.updateMany({
     where: { id, organisationId },

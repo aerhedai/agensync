@@ -1,7 +1,12 @@
 import { z } from "zod";
 
-import { customers } from "@/lib/mcp/mock-data";
+import * as customerRepository from "@/lib/customers/customer-repository";
 import { toolSuccess } from "@/lib/mcp/tool-result";
+import type { ToolName } from "@/lib/mcp/tool-registry";
+
+// Typed against ToolName so this literal can't silently drift from the
+// registry — removing "find_customer" from TOOL_REGISTRY breaks this line.
+const TOOL_NAME: ToolName = "find_customer";
 
 const inputSchema = {
   query: z
@@ -22,21 +27,24 @@ const outputSchema = {
     .nullable(),
 };
 
-export const findCustomerTool = {
-  name: "find_customer",
-  description: "Find a customer by name, email, or company.",
-  inputSchema,
-  outputSchema,
-  handler: async ({ query }: { query: string }) => {
-    const needle = query.toLowerCase();
-    const customer =
-      customers.find(
-        (c) =>
-          c.name.toLowerCase().includes(needle) ||
-          c.email.toLowerCase().includes(needle) ||
-          c.company.toLowerCase().includes(needle),
-      ) ?? null;
-
-    return toolSuccess({ found: customer !== null, customer });
-  },
-};
+/**
+ * organisationId is bound at server-construction time (same pattern as
+ * send-email.ts's createSendEmailTool) — a business's customer data must
+ * never be reachable by an LLM call scoped to a different organisation.
+ */
+export function createFindCustomerTool(organisationId: string) {
+  return {
+    name: TOOL_NAME,
+    description: "Look up a customer by name, email, or company.",
+    inputSchema,
+    outputSchema,
+    handler: async ({ query }: { query: string }) => {
+      const matches = await customerRepository.searchCustomers(
+        organisationId,
+        query,
+      );
+      const customer = matches[0] ?? null;
+      return toolSuccess({ found: customer !== null, customer });
+    },
+  };
+}

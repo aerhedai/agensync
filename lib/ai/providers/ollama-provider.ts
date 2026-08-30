@@ -46,12 +46,30 @@ function fromOllamaToolCalls(
 }
 
 export class OllamaProvider implements AIProvider {
-  constructor(private readonly baseUrl: string) {}
+  /**
+   * proxySecret is only needed when baseUrl points at the auth proxy in
+   * scripts/ollama-auth-proxy.py (see docs/production-notes.md) — a thin
+   * bearer-token-gated reverse proxy that runs on the Ollama host itself,
+   * used so a hosted deployment (which can't reach a Tailscale-only
+   * network directly) can still call it over a public Tailscale Funnel
+   * URL without leaving the real Ollama API open to the internet. Plain
+   * local Ollama has no auth of its own, so this is omitted entirely for
+   * local dev, which talks to Ollama directly.
+   */
+  constructor(
+    private readonly baseUrl: string,
+    private readonly proxySecret?: string,
+  ) {}
 
   async generateResponse(request: GenerateRequest): Promise<AIResponse> {
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.proxySecret && {
+          Authorization: `Bearer ${this.proxySecret}`,
+        }),
+      },
       body: JSON.stringify({
         model: request.model,
         messages: request.messages.map(toOllamaMessage),

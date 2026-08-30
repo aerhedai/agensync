@@ -216,6 +216,57 @@ describe("OllamaProvider", () => {
     expect(sentBody.think).toBe(false);
   });
 
+  it("sends no Authorization header when talking to Ollama directly (no proxy secret)", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: { role: "assistant", content: "pong" } }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OllamaProvider("http://ollama.test:11434");
+    await provider.generateResponse({
+      model: "qwen2.5:14b",
+      messages: [{ role: "user", content: "ping" }],
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const headers = requestInit.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it("sends a Bearer Authorization header when a proxy secret is configured — the auth-gated proxy in front of a publicly-exposed Ollama (scripts/ollama-auth-proxy.py) requires it on every request", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: { role: "assistant", content: "pong" } }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OllamaProvider(
+      "https://ollama-host.example.ts.net",
+      "secret-token",
+    );
+    await provider.generateResponse({
+      model: "qwen2.5:14b",
+      messages: [{ role: "user", content: "ping" }],
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const headers = requestInit.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer secret-token");
+  });
+
   it("throws a descriptive error on a non-ok response", async () => {
     vi.stubGlobal(
       "fetch",

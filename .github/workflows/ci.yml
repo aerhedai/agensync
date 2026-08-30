@@ -6,13 +6,41 @@ on:
   pull_request:
 
 env:
-  # lib/env.ts validates this at import time. No real database is needed —
-  # nothing in CI executes a query against it (see CLAUDE.md #40 / issue #5).
-  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+  # A real Postgres service (below), not a dummy string — Phase 2's
+  # integration tests need an actual database to create/read rows against.
+  DATABASE_URL: postgresql://agensync:agensync@localhost:5432/agensync
+  # Ollama is a private Tailscale host CI cannot reach — lib/env.ts only
+  # validates these are shaped correctly, nothing in CI calls Ollama over
+  # the network (the Ollama provider test mocks fetch).
+  OLLAMA_BASE_URL: http://ollama.invalid:11434
+  AI_PROVIDER: ollama
+  # Shape-valid dummy values, same rationale as OLLAMA_BASE_URL above:
+  # lib/env.ts's eager parse and `pnpm build` need these present, but no
+  # test or build step ever makes a real Clerk API call or decrypts real
+  # data — nothing in CI needs these to be genuine secrets.
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZHVtbXktY2xlcmsta2V5LWZvci1jaS5jbGVyay5hY2NvdW50cy5kZXYk
+  CLERK_SECRET_KEY: sk_test_ZHVtbXktY2xlcmstc2VjcmV0LWtleS1mb3ItY2ktb25seQ
+  TOKEN_ENCRYPTION_KEY: VAbwbKlEAJsczJIK4qu/Or5WWwOYJ86VZJ94gwtcRHM=
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agensync
+          POSTGRES_PASSWORD: agensync
+          POSTGRES_DB: agensync
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agensync -d agensync"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +62,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Run migrations
+        run: pnpm exec prisma migrate deploy
 
       - name: Test
         run: pnpm test

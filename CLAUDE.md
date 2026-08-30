@@ -1699,7 +1699,7 @@ The following are enforced mechanically (via `.claude/settings.json` hooks and, 
 
 ## Prompt transcript
 
-Every user prompt in this repository is appended automatically to `transcript/prompts.md` by a `UserPromptSubmit` hook (`.claude/hooks/log-prompt.sh`). This is unconditional — it logs every prompt, including ones a user asks not to be logged in the moment; if a prompt must be excluded, remove it from `transcript/prompts.md` afterward.
+Every user prompt is appended automatically to `transcript/prompts.md` by a `UserPromptSubmit` hook (`.claude/hooks/log-prompt.sh`). This is unconditional — it logs every prompt, including ones a user asks not to be logged in the moment; if a prompt must be excluded, remove it from `transcript/prompts.md` afterward. `transcript/` is gitignored — it's a local working log, not part of the repository.
 
 ## Frontend screenshots before a PR
 
@@ -1709,7 +1709,7 @@ This gate can only enforce an explicit acknowledgment step — it cannot verify 
 
 ## Branching model
 
-Effective once Phase 1 (project foundation) is complete — Phase 1 itself was built via direct commits to `main`, which is a deliberate one-time exception for initial scaffolding, not the ongoing policy:
+In effect from Phase 2 onward — Phase 1 (project foundation) itself was built via direct commits to `main`, which was a deliberate one-time exception for initial scaffolding, not the ongoing policy:
 
 ```text
 main   — protected, always deployable
@@ -1722,4 +1722,4 @@ feature/* — branched off dev, one per issue/feature
 * No direct pushes to `main` or `dev`. All changes land via a pull request.
 * Feature branches are cut from `dev`, not `main`.
 * `main` only receives merges from `dev` (releases), never directly from a feature branch.
-* Enforced server-side via GitHub branch protection rules on `main` and `dev` (required PR, no direct pushes), not just by convention.
+* Enforced server-side via GitHub branch protection rules on `main` and `dev` (required PR, required `ci` status check, no direct pushes, no force pushes, enforced for admins too — verified with a real rejected push, not just configured and assumed). A `PreToolUse` hook (`.claude/hooks/block-protected-push.sh`) also blocks direct `git push` to `main`/`dev` locally, as a fast failure ahead of the server-side rejection.

@@ -1,6 +1,3 @@
-// No models yet — this stage only proves the Next.js -> Prisma -> Postgres
-// connection works (via app/api/health/route.ts). Domain models land in Phase 2.
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -8,4 +5,362 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  APPROVER
+}
+
+enum AgentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum RunStepType {
+  INPUT_RECEIVED
+  AGENT_DECISION
+  TOOL_CALL
+  APPROVAL_REQUESTED
+  APPROVAL_GRANTED
+  RUN_COMPLETED
+  RUN_FAILED
+  RUN_CANCELLED
+}
+
+enum ToolCallStatus {
+  SUCCESS
+  FAILED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum IntegrationProvider {
+  GMAIL
+}
+
+enum WorkflowTriggerType {
+  EMAIL
+}
+
+enum WorkflowAgentRole {
+  CLASSIFIER
+  HANDLER
+}
+
+// LOOP: the original free-form runtime (lib/runtime/agent-runtime.ts) — the
+// model decides which tool to call next, turn by turn. HARNESS: a fixed,
+// coded pipeline (lib/harness/) — the model is only asked narrow, atomic
+// questions (extract these fields; write this reply from these facts); tool
+// sequencing is deterministic code, not a model decision. Both are kept as
+// real, supported modes rather than replacing one with the other — some
+// future agent's job may not fit a fixed pipeline.
+enum AgentExecutionMode {
+  LOOP
+  HARNESS
+}
+
+model Organisation {
+  id         String   @id @default(cuid())
+  // Clerk's Organization id — the real, session-verified identity every
+  // request's org context resolves against (lib/organisations/current-organisation.ts).
+  // Required: every Organisation row that exists came from a real Clerk
+  // sign-in, provisioned lazily on first sight of a not-yet-seen org.
+  clerkOrgId String   @unique
+  name       String
+  // ISO 4217 code (e.g. "GBP", "USD"). Plain string, not an enum — ISO 4217
+  // has ~180 codes; a Postgres enum would need a migration per new currency
+  // supported. What the app actually accepts is constrained at the
+  // application layer instead (lib/currency/currency-symbols.ts).
+  currency   String   @default("GBP")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users        User[]
+  agents       Agent[]
+  agentRuns    AgentRun[]
+  approvals    Approval[]
+  integrations Integration[]
+  workflows    Workflow[]
+  products     Product[]
+  customers    Customer[]
+}
+
+// Real, org-scoped catalog data, replacing the old lib/mcp/mock-data.ts
+// shared in-memory arrays — each business gets its own products, not a
+// hardcoded demo catalog. stockQuantity is folded directly onto Product
+// rather than a separate Inventory model: the old mock data already had a
+// strict 1:1 product-to-quantity relationship with no second consumer that
+// would justify splitting it out (CLAUDE.md #17 — no unnecessary entities).
+model Product {
+  id             String   @id @default(cuid())
+  organisationId String
+  sku            String
+  name           String
+  // Money — Decimal (Postgres numeric), never Float. A price that
+  // round-trips through IEEE-754 float arithmetic can drift; Decimal
+  // (decimal.js under Prisma) is the standard mapping for currency values.
+  unitPrice      Decimal  @db.Decimal(10, 2)
+  stockQuantity  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, sku])
+  @@index([organisationId])
+}
+
+model Customer {
+  id             String   @id @default(cuid())
+  organisationId String
+  name           String
+  email          String
+  company        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, email])
+  @@index([organisationId])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  organisationId String
+  // Clerk's User id, scoped to this org membership (not globally unique —
+  // one Clerk person can belong to more than one organisation via
+  // <OrganizationSwitcher/>, each membership gets its own row here).
+  clerkUserId    String
+  email          String
+  name           String
+  role           UserRole @default(MEMBER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation     Organisation @relation(fields: [organisationId], references: [id])
+  approvalsDecided Approval[]
+
+  // Scoped to organisationId, not globally unique — the same real person
+  // (same email, same Clerk user) can be a member of more than one
+  // organisation, each with its own row here.
+  @@unique([organisationId, email])
+  @@unique([organisationId, clerkUserId])
+  @@index([organisationId])
+}
+
+model Agent {
+  id             String      @id @default(cuid())
+  organisationId String
+  name           String
+  description    String
+  instructions   String
+  model          String
+  status         AgentStatus @default(DRAFT)
+  version        Int         @default(1)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  executionMode AgentExecutionMode @default(LOOP)
+  // Which lib/harness/pipelines/index.ts entry to run — only meaningful
+  // when executionMode is HARNESS. Not a foreign key: pipelines are code,
+  // not database rows (CLAUDE.md #24 — no generic workflow-node engine yet).
+  pipelineKey   String?
+  // Deterministic pre-classification, tried before the LLM classifier
+  // (lib/routing/deterministic-classify.ts) — if the input contains one of
+  // these words/phrases and no other agent's keywords also match, routing
+  // skips the LLM call entirely. Empty means "always ask the classifier."
+  keywords      String[]           @default([])
+  // HARNESS-only: overrides a pipeline's hardcoded default reply subject
+  // line (e.g. Complaints' "Re: your recent experience"). Null means "use
+  // the pipeline's default" — existing agents with no template set keep
+  // behaving exactly as before this field existed.
+  replySubjectTemplate String?
+
+  organisation        Organisation    @relation(fields: [organisationId], references: [id])
+  runs                AgentRun[]
+  tools               AgentTool[]
+  workflowMemberships WorkflowAgent[]
+
+  @@index([organisationId])
+}
+
+// Which MCP tools this agent may use (CLAUDE.md #9 step 3: "check the
+// agent has access to the tool"). Enforced deterministically in
+// lib/runtime/agent-runtime.ts before a tool call ever reaches the MCP
+// server — a tool absent here is refused even if the model asks for it,
+// not just hidden from what's offered.
+model AgentTool {
+  id       String @id @default(cuid())
+  agentId  String
+  toolName String
+
+  agent Agent @relation(fields: [agentId], references: [id])
+
+  @@unique([agentId, toolName])
+  @@index([agentId])
+}
+
+// A named, reusable pipeline: one classifier agent that decides which
+// handler agent should deal with an inbound item, plus the handler agents
+// themselves (see lib/routing/dispatch.ts). Kept deliberately simple (a
+// flat classifier + handlers list, not a generic node graph) — CLAUDE.md
+// #24 says not to build a full workflow editor yet — but it's a real,
+// separate entity so a business can eventually have more than one workflow
+// (e.g. a future quote-to-production pipeline) without a schema rewrite.
+model Workflow {
+  id             String              @id @default(cuid())
+  organisationId String
+  name           String
+  description    String
+  trigger        WorkflowTriggerType
+  status         AgentStatus         @default(DRAFT)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organisation Organisation    @relation(fields: [organisationId], references: [id])
+  members      WorkflowAgent[]
+
+  @@index([organisationId])
+}
+
+model WorkflowAgent {
+  id         String            @id @default(cuid())
+  workflowId String
+  agentId    String
+  role       WorkflowAgentRole
+
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+  agent    Agent    @relation(fields: [agentId], references: [id])
+
+  @@unique([workflowId, agentId])
+  @@index([workflowId])
+  @@index([agentId])
+}
+
+model AgentRun {
+  id             String    @id @default(cuid())
+  agentId        String
+  organisationId String
+  status         RunStatus @default(PENDING)
+  input          String
+  // Snapshot of the in-progress conversation, saved only when the run
+  // pauses for approval — lets resumeRun() pick the loop back up rather
+  // than starting the conversation over.
+  messages       Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  steps        RunStep[]
+  toolCalls    ToolCall[]
+  approvals    Approval[]
+
+  @@index([agentId])
+  @@index([organisationId])
+}
+
+model RunStep {
+  id         String      @id @default(cuid())
+  agentRunId String
+  stepType   RunStepType
+  detail     String?
+  toolCallId String?     @unique
+  createdAt  DateTime    @default(now())
+
+  // Populated only on steps backed by a real LLM call (AGENT_DECISION
+  // today) from AIResponse.usage — null for deterministic steps (TOOL_CALL,
+  // INPUT_RECEIVED, etc.), which cost no tokens. Summed on the run detail
+  // page so cost is visible per run, not something you rediscover by
+  // running a script.
+  promptTokens     Int?
+  completionTokens Int?
+
+  agentRun AgentRun  @relation(fields: [agentRunId], references: [id])
+  toolCall ToolCall? @relation(fields: [toolCallId], references: [id])
+
+  @@index([agentRunId])
+}
+
+model ToolCall {
+  id         String         @id @default(cuid())
+  agentRunId String
+  toolName   String
+  input      Json
+  output     Json?
+  status     ToolCallStatus
+  error      String?
+  createdAt  DateTime       @default(now())
+
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id])
+  runStep  RunStep?
+
+  @@index([agentRunId])
+}
+
+model Approval {
+  id                 String         @id @default(cuid())
+  agentRunId         String
+  organisationId     String
+  requestedAction    String
+  reason             String
+  // The exact tool-call arguments being held back pending approval (e.g.
+  // {to, subject, body} for send_email) and the LLM's id for that call, so
+  // the approver reviews the real proposed content — not just an abstract
+  // "an email will be sent" — and resumeRun can execute precisely this call.
+  // Null for any future post-execution-only approval (see policy-engine.ts).
+  proposedInput      Json?
+  proposedToolCallId String?
+  status             ApprovalStatus @default(PENDING)
+  requestedAt        DateTime       @default(now())
+  approverId         String?
+  decidedAt          DateTime?
+
+  agentRun     AgentRun     @relation(fields: [agentRunId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  approver     User?        @relation(fields: [approverId], references: [id])
+
+  @@index([agentRunId])
+  @@index([organisationId])
+}
+
+// Stores one OAuth token set per organisation per provider. Tokens are
+// plaintext for V1 — server-side only, never sent to the browser, never
+// committed (CLAUDE.md #22) — see docs/production-notes.md for the
+// encryption-at-rest hardening this needs before any real deployment.
+model Integration {
+  id             String              @id @default(cuid())
+  organisationId String
+  provider       IntegrationProvider
+  email          String
+  accessToken    String
+  refreshToken   String
+  expiresAt      DateTime
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, provider])
+  @@index([organisationId])
 }

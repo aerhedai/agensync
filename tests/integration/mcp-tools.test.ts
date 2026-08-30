@@ -16,7 +16,12 @@ describe("MCP tool server", () => {
 
   beforeEach(async () => {
     await prisma.organisation.create({
-      data: { id: organisationId, name: "MCP Tools Test Org", currency: "GBP" },
+      data: {
+        id: organisationId,
+        clerkOrgId: organisationId,
+        name: "MCP Tools Test Org",
+        currency: "GBP",
+      },
     });
     await prisma.product.create({
       data: {

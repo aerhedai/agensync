@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ClerkProvider } from "@clerk/nextjs";
 import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { Nav } from "@/components/layout/nav";
 import { cn } from "@/lib/utils";
@@ -14,11 +15,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={cn("font-sans", sans.variable, mono.variable)}>
-      <body>
-        <Nav />
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" className={cn("font-sans", sans.variable, mono.variable)}>
+        <body>
+          <Nav />
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

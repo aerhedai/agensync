@@ -67,10 +67,10 @@ describe("multi-org catalog isolation", () => {
 
   it("keeps two organisations' catalog, currency, and sign-off fully isolated", async () => {
     await prisma.organisation.create({
-      data: { id: orgAId, name: "Acme Test Co" },
+      data: { id: orgAId, clerkOrgId: orgAId, name: "Acme Test Co" },
     });
     await prisma.organisation.create({
-      data: { id: orgBId, name: "Northwind Test Co" },
+      data: { id: orgBId, clerkOrgId: orgBId, name: "Northwind Test Co" },
     });
 
     await provisionEmailWorkflow({

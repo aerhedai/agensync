@@ -77,15 +77,20 @@ enum AgentExecutionMode {
 }
 
 model Organisation {
-  id        String   @id @default(cuid())
-  name      String
+  id         String   @id @default(cuid())
+  // Clerk's Organization id — the real, session-verified identity every
+  // request's org context resolves against (lib/organisations/current-organisation.ts).
+  // Required: every Organisation row that exists came from a real Clerk
+  // sign-in, provisioned lazily on first sight of a not-yet-seen org.
+  clerkOrgId String   @unique
+  name       String
   // ISO 4217 code (e.g. "GBP", "USD"). Plain string, not an enum — ISO 4217
   // has ~180 codes; a Postgres enum would need a migration per new currency
   // supported. What the app actually accepts is constrained at the
   // application layer instead (lib/currency/currency-symbols.ts).
-  currency  String   @default("GBP")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  currency   String   @default("GBP")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   users        User[]
   agents       Agent[]
@@ -140,7 +145,11 @@ model Customer {
 model User {
   id             String   @id @default(cuid())
   organisationId String
-  email          String   @unique
+  // Clerk's User id, scoped to this org membership (not globally unique —
+  // one Clerk person can belong to more than one organisation via
+  // <OrganizationSwitcher/>, each membership gets its own row here).
+  clerkUserId    String
+  email          String
   name           String
   role           UserRole @default(MEMBER)
   createdAt      DateTime @default(now())
@@ -149,6 +158,11 @@ model User {
   organisation     Organisation @relation(fields: [organisationId], references: [id])
   approvalsDecided Approval[]
 
+  // Scoped to organisationId, not globally unique — the same real person
+  // (same email, same Clerk user) can be a member of more than one
+  // organisation, each with its own row here.
+  @@unique([organisationId, email])
+  @@unique([organisationId, clerkUserId])
   @@index([organisationId])
 }
 

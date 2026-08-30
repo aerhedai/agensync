@@ -38,7 +38,11 @@ describe("agent runtime", () => {
 
   beforeAll(async () => {
     await prisma.organisation.create({
-      data: { id: organisationId, name: "Runtime Test Org" },
+      data: {
+        id: organisationId,
+        clerkOrgId: organisationId,
+        name: "Runtime Test Org",
+      },
     });
     // Real per-org catalog row the calculate_quote tool call below resolves
     // against — replaces the old shared lib/mcp/mock-data.ts arrays.
@@ -97,6 +101,7 @@ describe("agent runtime", () => {
     approver = await prisma.user.create({
       data: {
         organisationId,
+        clerkUserId: "test-approver-runtime",
         email: "approver@runtime-test.local",
         name: "Test Approver",
         role: "APPROVER",

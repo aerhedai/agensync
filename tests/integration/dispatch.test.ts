@@ -28,7 +28,11 @@ describe("dispatchInboundMessage", () => {
 
   beforeAll(async () => {
     await prisma.organisation.create({
-      data: { id: organisationId, name: "Dispatch Test Org" },
+      data: {
+        id: organisationId,
+        clerkOrgId: organisationId,
+        name: "Dispatch Test Org",
+      },
     });
 
     const classifier = await prisma.agent.create({
@@ -148,7 +152,10 @@ describe("dispatchInboundMessage", () => {
 
   it("reports no_workflow when the organisation has no active EMAIL workflow", async () => {
     const otherOrg = await prisma.organisation.create({
-      data: { name: "No Workflow Org" },
+      data: {
+        clerkOrgId: "test-clerk-org-no-workflow",
+        name: "No Workflow Org",
+      },
     });
 
     const result = await dispatchInboundMessage(

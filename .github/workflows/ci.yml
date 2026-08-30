@@ -14,6 +14,13 @@ env:
   # the network (the Ollama provider test mocks fetch).
   OLLAMA_BASE_URL: http://ollama.invalid:11434
   AI_PROVIDER: ollama
+  # Shape-valid dummy values, same rationale as OLLAMA_BASE_URL above:
+  # lib/env.ts's eager parse and `pnpm build` need these present, but no
+  # test or build step ever makes a real Clerk API call or decrypts real
+  # data — nothing in CI needs these to be genuine secrets.
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZHVtbXktY2xlcmsta2V5LWZvci1jaS5jbGVyay5hY2NvdW50cy5kZXYk
+  CLERK_SECRET_KEY: sk_test_ZHVtbXktY2xlcmstc2VjcmV0LWtleS1mb3ItY2ktb25seQ
+  TOKEN_ENCRYPTION_KEY: VAbwbKlEAJsczJIK4qu/Or5WWwOYJ86VZJ94gwtcRHM=
 
 jobs:
   ci:

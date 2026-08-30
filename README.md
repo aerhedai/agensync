@@ -23,12 +23,20 @@ cp .env.example .env.local
 
 docker compose up -d  # starts PostgreSQL on localhost:5433
 pnpm exec prisma migrate deploy
-pnpm db:seed
 
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), and confirm the database connection is live:
+Every page requires a real signed-in Clerk session — there's no seed-script
+shortcut. Fill in `.env.local`'s `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` /
+`CLERK_SECRET_KEY` (from a free [Clerk](https://clerk.com) application's
+dashboard → API Keys, with Organizations enabled in that dashboard) and
+`TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`), then open
+[http://localhost:3000](http://localhost:3000) and sign up — the app
+provisions your organisation and a working Email Handling workflow
+automatically on first sign-in (`lib/organisations/current-organisation.ts`).
+
+Confirm the database connection is live independently of auth:
 
 ```bash
 curl http://localhost:3000/api/health
@@ -51,7 +59,7 @@ Ollama is not run via Docker Compose here — during development it runs on a se
 | `pnpm typecheck`                    | `tsc --noEmit`                   |
 | `pnpm test` / `pnpm test:watch`     | Vitest                           |
 | `pnpm db:migrate`                   | Create + apply a migration (dev) |
-| `pnpm db:seed`                      | Seed local dev data              |
+| `pnpm db:seed`                      | No-op — see `prisma/seed.ts`     |
 
 CI (`.github/workflows/ci.yml`) runs a real Postgres service, applies migrations, then: install → lint → format:check → typecheck → migrate → test → build, on every push and pull request to `main`.
 

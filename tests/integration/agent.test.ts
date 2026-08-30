@@ -14,7 +14,11 @@ describe("Agent create + retrieve (real Postgres)", () => {
 
   it("creates an agent and reads it back from the database", async () => {
     await prisma.organisation.create({
-      data: { id: organisationId, name: "Integration Test Org" },
+      data: {
+        id: organisationId,
+        clerkOrgId: organisationId,
+        name: "Integration Test Org",
+      },
     });
 
     await prisma.agent.create({

@@ -4,22 +4,69 @@ Deliberate V1 simplifications that are fine for local development but must be
 addressed before any real deployment. Each entry names the gap, why it was
 accepted for now, and what closing it looks like.
 
-## Gmail OAuth tokens stored in plaintext (Phase 9)
+## Gmail OAuth tokens encrypted at rest (Phase B — closed)
 
-`Integration.accessToken` / `Integration.refreshToken` (`prisma/schema.prisma`)
-are stored as plain text in Postgres.
+`Integration.accessToken` / `Integration.refreshToken` were stored as plain
+text in Postgres through Phase 9. Now encrypted with AES-256-GCM
+(`lib/crypto/token-cipher.ts`), wired in at the single chokepoint all reads/
+writes already funnelled through (`lib/integrations/integration-repository.ts`)
+— nothing above that layer (the service layer, both Gmail route handlers,
+`lib/integrations/gmail/{oauth,client}.ts`) had to change or even knows
+encryption exists.
 
-**Why accepted for V1:** tokens are server-side only (never sent to the
-browser, never logged, never committed — CLAUDE.md §22), and CLAUDE.md's
-guiding principle is not to add infrastructure before there's a demonstrated
-need (§4, §30). Encryption-at-rest requires key management (where does the
-encryption key live? rotation policy?) that has no real answer yet for a
-single-tenant local dev setup.
+The key comes from `TOKEN_ENCRYPTION_KEY`, an env var. This isn't the
+"another env var sitting next to the thing it protects" anti-pattern the
+old version of this note warned against — that caution is about not storing
+the key in the _same datastore_ as the ciphertext (e.g. a second column on
+the `Integration` row, or a `Secrets` table in the same Postgres instance),
+which this design avoids: the key lives in process env, the ciphertext lives
+in Postgres, genuinely separate trust domains for local/CI purposes. It's
+still true that a real secrets manager (not a plain env var) is the correct
+home for this key before a genuine production deployment — that part of the
+original caution doesn't go away, it's just correctly scoped to "before
+production," not "before this closes at all."
 
-**What closing it looks like:** encrypt both columns (e.g. AES-256-GCM) with
-a key sourced from a proper secrets manager (not another env var sitting next
-to the thing it protects), before onboarding any real customer data or
-deploying outside local development.
+## Real multi-tenant auth (Phase B)
+
+Every page/action now resolves organisation and user context from a real
+Clerk session (`lib/organisations/current-organisation.ts`,
+`lib/auth/current-user.ts`) instead of the old "whichever row was created
+first" placeholder. Two deliberate simplifications worth knowing about:
+
+- **Provisioning is lazy, not webhook-based.** A brand-new organisation's
+  local `Organisation` row and starter Email Handling workflow
+  (`provisionEmailWorkflow()`) are created inline, the first time
+  `getCurrentOrganisation()` sees a not-yet-seen `clerkOrgId` — not via a
+  `/api/webhooks/clerk` endpoint. A webhook route is a new unauthenticated,
+  internet-facing endpoint with signature verification to get right, which
+  didn't fit a pass whose whole point was shrinking exposure (see the
+  disabled `/api/mcp` route below for the same reasoning applied
+  elsewhere). Fine at this scale — first-request provisioning does a
+  handful of synchronous Prisma upserts, sub-100ms. Would not be fine at
+  high-volume signup (thundering herd of first-requests); the fix there is
+  additive (move to an async webhook + queue), not a rewrite.
+- **No new authorization enforcement.** `User.role` gets populated
+  correctly from Clerk's org role (`org:admin`/`org:member` →
+  `ADMIN`/`MEMBER`), but nothing is gated by it yet — approve/reject
+  (`app/runs/[id]/actions.ts`) still accepts a decision from whichever
+  authenticated user submits it, same as before, just now scoped to real
+  org members instead of the whole internet. Restricting approve/reject to
+  `APPROVER` is real, separable authorization work for later, once role
+  data has actually been trustworthy for a while.
+
+## External MCP HTTP endpoint disabled
+
+`app/api/mcp/route.ts` used to expose Agensync's MCP tool server directly
+over HTTP with no authentication and no approval-gate enforcement — a real
+caller could invoke `send_email` directly, bypassing the approval/audit
+system entirely. Found by a security audit; confirmed nothing in the app
+called it internally (the real runtime always connects in-process). Now
+returns 404. There's a real future use case (an external AI assistant like
+Claude Desktop connecting via MCP for read-only lookups —
+`find_customer`/`find_product`/`check_inventory`/`calculate_quote`, none of
+which have side effects) worth building once it can be scoped to read-only
+tools behind real per-organisation authentication, with `send_email`
+deliberately kept off whatever gets exposed.
 
 ## Token/cost optimization
 

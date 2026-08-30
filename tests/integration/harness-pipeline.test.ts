@@ -31,7 +31,12 @@ describe("harness pipeline", () => {
 
   beforeAll(async () => {
     await prisma.organisation.create({
-      data: { id: organisationId, name: "Harness Test Org", currency: "GBP" },
+      data: {
+        id: organisationId,
+        clerkOrgId: organisationId,
+        name: "Harness Test Org",
+        currency: "GBP",
+      },
     });
     // Real per-org catalog rows the pipeline's real find_product/
     // find_customer/check_inventory/calculate_quote tool calls resolve
@@ -98,6 +103,7 @@ describe("harness pipeline", () => {
     approver = await prisma.user.create({
       data: {
         organisationId,
+        clerkUserId: "test-approver-harness",
         email: "approver@harness-test.local",
         name: "Test Approver",
         role: "APPROVER",

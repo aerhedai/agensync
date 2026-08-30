@@ -1,5 +1,6 @@
 "use client";
 
+import { OrganizationSwitcher, UserButton, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -15,6 +16,9 @@ const LINKS = [
 
 export function Nav() {
   const pathname = usePathname();
+  // <SignedIn> was removed in this Clerk major version ("Core 3") — check
+  // auth state via the hook instead.
+  const { isSignedIn } = useAuth();
 
   return (
     <nav className="flex items-center gap-1 border-b border-border px-6 py-3">
@@ -38,6 +42,12 @@ export function Nav() {
           </Link>
         );
       })}
+      {isSignedIn && (
+        <div className="ml-auto flex items-center gap-3">
+          <OrganizationSwitcher afterSelectOrganizationUrl="/dashboard" />
+          <UserButton />
+        </div>
+      )}
     </nav>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import type { AgentFormState } from "@/app/agents/actions";
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Agent } from "@/lib/generated/prisma/client";
+import type { CategoryType } from "@/lib/agents/schemas";
+import type { ExtractionFieldConfig } from "@/lib/agents/extraction-fields";
 import { TOOL_REGISTRY } from "@/lib/mcp/tool-registry";
 
 function SubmitButton({ label }: { label: string }) {
@@ -20,6 +22,37 @@ function SubmitButton({ label }: { label: string }) {
   );
 }
 
+const CATEGORY_TYPE_OPTIONS: {
+  value: CategoryType;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "acknowledge_reply",
+    label: "Acknowledge & Reply",
+    description:
+      'Extract whatever facts you define from the message, optionally look up the customer, write an appropriate reply, apply your own guardrail — no code needed. Use this for most new categories (case inquiries, maintenance requests, general questions, complaints, anything that\'s fundamentally "read it and respond").',
+  },
+  {
+    value: "quote",
+    label: "Lookup & Quote",
+    description:
+      "The built-in product/quantity pricing flow: find the customer, find the product, check stock, calculate a total, send a quote. Fixed logic — configure keywords, model, and tools, not the sequence itself.",
+  },
+  {
+    value: "loop",
+    label: "Free-form (advanced)",
+    description:
+      "The model decides which tools to call and in what order, turn by turn. More flexible, less predictable — this project's own findings are that tool-call failures happen here, not in the pipeline modes above. Prefer Acknowledge & Reply unless you specifically need this.",
+  },
+];
+
+function deriveCategoryType(agent?: AgentFormValues): CategoryType {
+  if (!agent) return "acknowledge_reply";
+  if (agent.executionMode !== "HARNESS") return "loop";
+  return agent.pipelineKey === "quote" ? "quote" : "acknowledge_reply";
+}
+
 type AgentFormValues = Pick<
   Agent,
   | "name"
@@ -28,8 +61,12 @@ type AgentFormValues = Pick<
   | "model"
   | "keywords"
   | "replySubjectTemplate"
+  | "executionMode"
+  | "pipelineKey"
+  | "guardrailKeywords"
 > & {
   toolNames?: string[];
+  extractionFields?: ExtractionFieldConfig[];
 };
 
 export function AgentForm({
@@ -49,6 +86,12 @@ export function AgentForm({
     {},
   );
   const grantedTools = new Set(agent?.toolNames ?? []);
+  const [categoryType, setCategoryType] = useState<CategoryType>(
+    deriveCategoryType(agent),
+  );
+  const [extractionFields, setExtractionFields] = useState<
+    ExtractionFieldConfig[]
+  >(agent?.extractionFields ?? []);
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -80,6 +123,35 @@ export function AgentForm({
       </div>
 
       <div className="flex flex-col gap-2">
+        <Label>Category type</Label>
+        <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+          {CATEGORY_TYPE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className="flex items-start gap-2 text-sm"
+              htmlFor={`categoryType-${option.value}`}
+            >
+              <input
+                type="radio"
+                id={`categoryType-${option.value}`}
+                name="categoryType"
+                value={option.value}
+                checked={categoryType === option.value}
+                onChange={() => setCategoryType(option.value)}
+                className="mt-0.5 h-4 w-4 border-border"
+              />
+              <span className="flex flex-col">
+                <span className="font-medium">{option.label}</span>
+                <span className="text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
         <Label htmlFor="instructions">Instructions</Label>
         <Textarea
           id="instructions"
@@ -99,6 +171,103 @@ export function AgentForm({
           </p>
         )}
       </div>
+
+      {categoryType === "acknowledge_reply" && (
+        <div className="flex flex-col gap-2">
+          <Label>Fields to extract</Label>
+          <p className="text-xs text-muted-foreground">
+            What to pull out of the message, beyond the customer&rsquo;s email
+            (always extracted automatically). Each becomes a fact available when
+            writing the reply.
+          </p>
+          <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+            {extractionFields.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No extra fields — the reply will be written from the
+                customer&rsquo;s identity alone.
+              </p>
+            )}
+            {extractionFields.map((field, index) => (
+              <div key={index} className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  name="extractionFieldName"
+                  placeholder="Field name, e.g. caseNumber"
+                  value={field.name}
+                  onChange={(e) =>
+                    setExtractionFields((fields) =>
+                      fields.map((f, i) =>
+                        i === index ? { ...f, name: e.target.value } : f,
+                      ),
+                    )
+                  }
+                  className="sm:w-48"
+                />
+                <Input
+                  name="extractionFieldDescription"
+                  placeholder="What it is, e.g. the case number if mentioned"
+                  value={field.description}
+                  onChange={(e) =>
+                    setExtractionFields((fields) =>
+                      fields.map((f, i) =>
+                        i === index ? { ...f, description: e.target.value } : f,
+                      ),
+                    )
+                  }
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setExtractionFields((fields) =>
+                      fields.filter((_, i) => i !== index),
+                    )
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              className="self-start"
+              onClick={() =>
+                setExtractionFields((fields) => [
+                  ...fields,
+                  { name: "", description: "" },
+                ])
+              }
+            >
+              Add field
+            </Button>
+          </div>
+          {state.fieldErrors?.extractionFields && (
+            <p className="text-sm text-destructive">
+              {state.fieldErrors.extractionFields[0]}
+            </p>
+          )}
+        </div>
+      )}
+
+      {categoryType === "acknowledge_reply" && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="guardrailKeywords">
+            Never say (guardrail keywords)
+          </Label>
+          <Input
+            id="guardrailKeywords"
+            name="guardrailKeywords"
+            defaultValue={agent?.guardrailKeywords?.join(", ")}
+            placeholder="e.g. refund, compensation, discount"
+          />
+          <p className="text-xs text-muted-foreground">
+            Comma-separated. If the composed reply contains any of these words
+            or phrases, it&rsquo;s refused outright — never proposed for
+            approval, no exceptions. Leave blank for no guardrail.
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="model">Model</Label>

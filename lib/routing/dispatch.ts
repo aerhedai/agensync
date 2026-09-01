@@ -18,12 +18,23 @@ export type DispatchResult =
  * that*, never how the chosen agent executes once picked. Runs nothing if
  * no agent's scope clearly fits (CLAUDE.md #14 — no agent acting outside
  * its stated scope, not even a best guess).
+ *
+ * `input` should be the message's actual content (subject + body) only —
+ * never the sender's address. Both the keyword fast path and the LLM
+ * classifier match/reason over `input` directly, and a customer's own
+ * email address can accidentally collide with a keyword (found live: an
+ * address containing "price" silently routed every message to the Quote
+ * Agent, regardless of content). The sender goes through `senderEmail`
+ * instead, used only for identification (find_customer / reply-to) by the
+ * harness pipelines — it never influences what a message is classified as
+ * or what gets extracted from it.
  */
 export async function dispatchInboundMessage(
   organisationId: string,
   trigger: "EMAIL",
   input: string,
   provider: AIProvider = getAIProvider(),
+  senderEmail: string | null = null,
 ): Promise<DispatchResult> {
   const workflow =
     trigger === "EMAIL"
@@ -78,7 +89,12 @@ export async function dispatchInboundMessage(
     return { matched: false, reason: "no_match" };
   }
 
-  const run = await runAgentByExecutionMode(handler.agent, input, provider);
+  const run = await runAgentByExecutionMode(
+    handler.agent,
+    input,
+    provider,
+    senderEmail,
+  );
 
   return {
     matched: true,

@@ -64,6 +64,19 @@ enum WorkflowAgentRole {
   HANDLER
 }
 
+// TEMPLATE: a platform-provided, plug-and-play starter workflow (e.g.
+// "Email Handling", provisioned automatically for every new org — see
+// provision-email-workflow.ts) — a business enables/configures it, doesn't
+// author it from nothing. CUSTOM: a business built this one themselves
+// from /workflows/new, for a process the platform doesn't ship a starter
+// for. Both are ordinary Workflow rows with the same shape and the same
+// runtime — this only records provenance, it doesn't change how a
+// workflow runs.
+enum WorkflowSource {
+  TEMPLATE
+  CUSTOM
+}
+
 // LOOP: the original free-form runtime (lib/runtime/agent-runtime.ts) — the
 // model decides which tool to call next, turn by turn. HARNESS: a fixed,
 // coded pipeline (lib/harness/) — the model is only asked narrow, atomic
@@ -193,6 +206,35 @@ model Agent {
   // the pipeline's default" — existing agents with no template set keep
   // behaving exactly as before this field existed.
   replySubjectTemplate String?
+  // "acknowledge_reply"-pipeline-only: business-defined fields to pull out
+  // of the message, e.g. [{"name":"caseNumber","description":"the case
+  // number if mentioned"}]. A fixed "customerEmail" field is always
+  // extracted in addition to these regardless of what's configured here —
+  // see acknowledge-reply-pipeline.ts — so a business never has to think
+  // about identity extraction, only what's specific to their category.
+  // Json, not a related table: this is a small, agent-owned list with no
+  // independent lifecycle of its own, same reasoning as messages on
+  // AgentRun.
+  extractionFields Json @default("[]")
+  // "acknowledge_reply"-pipeline-only: a composed reply is refused (run
+  // FAILED, never proposed for approval) if it contains any of these
+  // words/phrases, case-insensitive substring match — see
+  // pipeline-guards.ts. Generalizes what was a single hardcoded
+  // compensation-promise regex on the old Complaints pipeline into a
+  // guardrail any business-defined category can configure for itself.
+  // Empty means no guardrail is applied.
+  guardrailKeywords String[] @default([])
+  // HARNESS-only: the tool a pipeline proposes as its terminal action (see
+  // lib/harness/propose-action.ts). Not a foreign key, same reasoning as
+  // pipelineKey — tools are code, validated at runtime against the real
+  // MCP tool registry and this agent's own grants, not a DB relation.
+  // "send_email" is the only tool that makes sense here today (the only
+  // approval-gated, customer-facing action that exists); this field exists
+  // now, ahead of a second one, so adding create_invoice/post_slack_message
+  // later (once real integrations exist) is additive to the pipeline layer,
+  // not a rewrite of it — same reasoning as the AIProvider abstraction
+  // existing before a second AI provider did.
+  actionTool String @default("send_email")
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
   runs                AgentRun[]
@@ -231,9 +273,24 @@ model Workflow {
   name           String
   description    String
   trigger        WorkflowTriggerType
-  status         AgentStatus         @default(DRAFT)
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  // DRAFT: being built, never dispatched to. ACTIVE: live — at most one
+  // workflow per (organisationId, trigger) may be ACTIVE at a time,
+  // enforced in workflow-service.ts's activateWorkflow, not the database —
+  // dispatchInboundMessage's findActiveWorkflowByTrigger uses findFirst,
+  // so two ACTIVE workflows on the same trigger would mean one silently,
+  // non-deterministically never receives real traffic. ARCHIVED: retired.
+  status AgentStatus @default(DRAFT)
+  source WorkflowSource @default(CUSTOM)
+  // TEMPLATE-only: which starter template this came from (currently just
+  // "email_handling" — see provision-email-workflow.ts). Not a foreign
+  // key, same reasoning as Agent.pipelineKey: identifies which piece of
+  // code provisioned this, not a row in a templates table. Null for
+  // CUSTOM workflows. A real template *registry* (more than one starter
+  // to choose from) is later work — this field exists now so adding one
+  // is additive, not a schema change.
+  templateKey String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   organisation Organisation    @relation(fields: [organisationId], references: [id])
   members      WorkflowAgent[]

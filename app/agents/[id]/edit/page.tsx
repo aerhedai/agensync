@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { updateAgentAction } from "@/app/agents/actions";
 import { AgentForm } from "@/components/agents/agent-form";
 import * as agentService from "@/lib/agents/agent-service";
+import { extractionFieldsSchema } from "@/lib/agents/extraction-fields";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
 export default async function EditAgentPage({
@@ -24,6 +25,9 @@ export default async function EditAgentPage({
         agent={{
           ...agent,
           toolNames: agent.tools.map((t) => t.toolName),
+          extractionFields: extractionFieldsSchema.parse(
+            agent.extractionFields,
+          ),
         }}
         submitLabel="Save changes"
       />

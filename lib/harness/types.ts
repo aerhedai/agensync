@@ -15,6 +15,15 @@ export interface PipelineContext {
   organisation: Organisation;
   agent: Agent;
   input: string;
+  // The message's sender, known structurally from the trigger (e.g.
+  // Gmail's own "from" field) — never something a pipeline has to guess
+  // by scanning free text. Identification only (who to look up, who to
+  // reply to): never fed into classification or extraction prompts, so a
+  // customer's own address can't influence what the message is
+  // interpreted as. Null for manually-typed test input (the "Run agent"
+  // form has no separate sender field), where pipelines fall back to
+  // extractEmailDeterministically/LLM extraction on `input` instead.
+  senderEmail: string | null;
   mcpClient: Client;
   provider: AIProvider;
   allowedTools: Set<string>;

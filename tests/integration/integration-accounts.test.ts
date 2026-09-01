@@ -1,4 +1,12 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { prisma } from "@/lib/db/prisma";
 import * as integrationService from "@/lib/integrations/integration-service";
@@ -299,5 +307,344 @@ describe("multi-account integrations", () => {
 
     const token = await integrationService.getSlackBotToken(organisationId);
     expect(token).toBe("xoxb-T1");
+  });
+
+  function connectOutlookAccount(
+    email: string,
+    accessToken: string,
+    refreshToken: string,
+    expiresAt: Date = new Date(Date.now() + 3600_000),
+  ) {
+    return integrationService.connectOAuthAccount(organisationId, "outlook", {
+      accountName: email,
+      config: { email },
+      credentials: { accessToken, refreshToken },
+      expiresAt,
+    });
+  }
+
+  it("connecting two different Outlook addresses creates two separate accounts", async () => {
+    await connectOutlookAccount("sales@acme.test", "access-1", "refresh-1");
+    await connectOutlookAccount("support@acme.test", "access-2", "refresh-2");
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "outlook",
+    );
+    expect(accounts.map((a) => a.name).sort()).toEqual([
+      "sales@acme.test",
+      "support@acme.test",
+    ]);
+  });
+
+  it("reconnecting the same Outlook address updates that account rather than duplicating it", async () => {
+    await connectOutlookAccount("sales@acme.test", "access-old", "refresh-old");
+    await connectOutlookAccount("sales@acme.test", "access-new", "refresh-new");
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "outlook",
+    );
+    expect(accounts).toHaveLength(1);
+
+    const token =
+      await integrationService.getValidOutlookAccessToken(organisationId);
+    expect(token).toBe("access-new");
+  });
+
+  it("getValidOutlookAccessToken can be pinned to a specific account, not just the default", async () => {
+    await connectOutlookAccount(
+      "first@acme.test",
+      "access-first",
+      "refresh-first",
+    );
+    const second = await connectOutlookAccount(
+      "second@acme.test",
+      "access-second",
+      "refresh-second",
+    );
+
+    const defaultToken =
+      await integrationService.getValidOutlookAccessToken(organisationId);
+    const pinnedToken = await integrationService.getValidOutlookAccessToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("access-first");
+    expect(pinnedToken).toBe("access-second");
+  });
+
+  it("getValidOutlookAccessToken rejects a pinned id that isn't an Outlook account", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Outlook",
+      );
+
+    await expect(
+      integrationService.getValidOutlookAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not an outlook account/i);
+  });
+
+  it("throws a clear error when no Outlook account is connected", async () => {
+    await expect(
+      integrationService.getValidOutlookAccessToken(organisationId),
+    ).rejects.toThrow(/outlook is not connected/i);
+  });
+
+  it("Outlook credentials round-trip through encryption correctly — never stored as plaintext", async () => {
+    await connectOutlookAccount(
+      "secret@acme.test",
+      "super-secret-access-token",
+      "super-secret-refresh-token",
+    );
+
+    const raw = await prisma.integration.findFirstOrThrow({
+      where: { organisationId, provider: "outlook" },
+    });
+    expect(raw.credentials).not.toContain("super-secret-access-token");
+    expect(raw.credentials).toMatch(/^v1:/);
+
+    const token =
+      await integrationService.getValidOutlookAccessToken(organisationId);
+    expect(token).toBe("super-secret-access-token");
+  });
+
+  describe("refresh-token rotation (Outlook, via the shared refresh helper)", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("persists a rotated refresh token, not just the new access token — a dropped rotation would eventually invalidate the old one", async () => {
+      const integration = await connectOutlookAccount(
+        "rotate@acme.test",
+        "access-1",
+        "refresh-1",
+        new Date(Date.now() - 1000), // already expired — forces a refresh
+      );
+
+      const firstFetch = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              access_token: "access-2",
+              refresh_token: "refresh-2-rotated",
+              expires_in: 3600,
+            }),
+            { status: 200 },
+          ),
+      );
+      vi.stubGlobal("fetch", firstFetch);
+
+      const token1 =
+        await integrationService.getValidOutlookAccessToken(organisationId);
+      expect(token1).toBe("access-2");
+
+      const [, firstInit] = firstFetch.mock.calls[0] as unknown as [
+        string,
+        RequestInit,
+      ];
+      const firstBody = new URLSearchParams(firstInit.body as string);
+      expect(firstBody.get("refresh_token")).toBe("refresh-1");
+
+      // Force another refresh, and confirm it uses the *rotated* token
+      // (refresh-2-rotated), not the original (refresh-1) — proving the
+      // rotation was actually persisted by getValidAccessToken, not
+      // silently dropped.
+      await prisma.integration.update({
+        where: { id: integration.id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+
+      const secondFetch = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ access_token: "access-3", expires_in: 3600 }),
+            { status: 200 },
+          ),
+      );
+      vi.stubGlobal("fetch", secondFetch);
+
+      const token2 =
+        await integrationService.getValidOutlookAccessToken(organisationId);
+      expect(token2).toBe("access-3");
+
+      const [, secondInit] = secondFetch.mock.calls[0] as unknown as [
+        string,
+        RequestInit,
+      ];
+      const secondBody = new URLSearchParams(secondInit.body as string);
+      expect(secondBody.get("refresh_token")).toBe("refresh-2-rotated");
+    });
+  });
+
+  function connectTeamsAccount(email: string) {
+    return integrationService.connectOAuthAccount(organisationId, "teams", {
+      accountName: email,
+      config: { email },
+      credentials: {
+        accessToken: `access-${email}`,
+        refreshToken: `refresh-${email}`,
+      },
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+  }
+
+  it("getValidTeamsAccessToken defaults to the earliest-connected account and can be pinned", async () => {
+    await connectTeamsAccount("first@acme.test");
+    const second = await connectTeamsAccount("second@acme.test");
+
+    const defaultToken =
+      await integrationService.getValidTeamsAccessToken(organisationId);
+    const pinnedToken = await integrationService.getValidTeamsAccessToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("access-first@acme.test");
+    expect(pinnedToken).toBe("access-second@acme.test");
+  });
+
+  it("getValidTeamsAccessToken rejects a pinned id from the wrong provider", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Teams",
+      );
+
+    await expect(
+      integrationService.getValidTeamsAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not a teams account/i);
+  });
+
+  function connectCalendarAccount(email: string) {
+    return integrationService.connectOAuthAccount(
+      organisationId,
+      "outlook-calendar",
+      {
+        accountName: email,
+        config: { email },
+        credentials: {
+          accessToken: `access-${email}`,
+          refreshToken: `refresh-${email}`,
+        },
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+  }
+
+  it("getValidOutlookCalendarAccessToken defaults to the earliest-connected account and can be pinned", async () => {
+    await connectCalendarAccount("first@acme.test");
+    const second = await connectCalendarAccount("second@acme.test");
+
+    const defaultToken =
+      await integrationService.getValidOutlookCalendarAccessToken(
+        organisationId,
+      );
+    const pinnedToken =
+      await integrationService.getValidOutlookCalendarAccessToken(
+        organisationId,
+        second.id,
+      );
+    expect(defaultToken).toBe("access-first@acme.test");
+    expect(pinnedToken).toBe("access-second@acme.test");
+  });
+
+  it("getValidOutlookCalendarAccessToken rejects a pinned id from the wrong provider", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Calendar",
+      );
+
+    await expect(
+      integrationService.getValidOutlookCalendarAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not an outlook calendar account/i);
+  });
+
+  describe("email-agnostic resolvers (Gmail + Outlook Mail)", () => {
+    it("getDefaultEmailIntegration picks the earliest-connected across both providers, not Gmail-biased", async () => {
+      // Outlook connected first, Gmail second — the Outlook account must
+      // still win, proving there's no hardcoded "Gmail always wins"
+      // priority.
+      const outlook = await connectOutlookAccount(
+        "outlook@acme.test",
+        "access-outlook",
+        "refresh-outlook",
+      );
+      await integrationService.connectGmailAccount(
+        organisationId,
+        "gmail@acme.test",
+        {
+          accessToken: "access-gmail",
+          refreshToken: "refresh-gmail",
+          expiresAt: new Date(Date.now() + 3600_000),
+        },
+      );
+
+      const result =
+        await integrationService.getDefaultEmailIntegration(organisationId);
+      expect(result?.id).toBe(outlook.id);
+    });
+
+    it("getValidEmailAccessToken resolves to whichever email provider is actually connected", async () => {
+      await connectOutlookAccount(
+        "only-outlook@acme.test",
+        "access-outlook-only",
+        "refresh-outlook-only",
+      );
+
+      const result =
+        await integrationService.getValidEmailAccessToken(organisationId);
+      expect(result).toEqual({
+        provider: "outlook",
+        accessToken: "access-outlook-only",
+      });
+    });
+
+    it("getValidEmailAccessToken throws a clear error when neither Gmail nor Outlook is connected", async () => {
+      await expect(
+        integrationService.getValidEmailAccessToken(organisationId),
+      ).rejects.toThrow(/no email account.*is connected/i);
+    });
+
+    it("getConnectedEmailIntegrations returns one entry per connected email provider, not every account", async () => {
+      const none =
+        await integrationService.getConnectedEmailIntegrations(organisationId);
+      expect(none).toHaveLength(0);
+
+      await integrationService.connectGmailAccount(
+        organisationId,
+        "gmail@acme.test",
+        {
+          accessToken: "a",
+          refreshToken: "r",
+          expiresAt: new Date(Date.now() + 3600_000),
+        },
+      );
+      const oneConnected =
+        await integrationService.getConnectedEmailIntegrations(organisationId);
+      expect(oneConnected.map((i) => i.provider)).toEqual(["gmail"]);
+
+      await connectOutlookAccount(
+        "outlook@acme.test",
+        "access-outlook",
+        "refresh-outlook",
+      );
+      const bothConnected =
+        await integrationService.getConnectedEmailIntegrations(organisationId);
+      expect(bothConnected.map((i) => i.provider).sort()).toEqual([
+        "gmail",
+        "outlook",
+      ]);
+    });
   });
 });

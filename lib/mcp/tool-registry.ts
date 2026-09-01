@@ -29,13 +29,32 @@ export const TOOL_REGISTRY = [
   {
     name: "send_email",
     label: "Send email",
-    description: "Send an email reply via Gmail — always requires approval.",
+    description:
+      "Send an email reply via whichever email account is connected (Gmail or Outlook) — always requires approval.",
   },
   {
     name: "notify_slack",
     label: "Notify Slack",
     description:
       "Post an internal notification to a Slack channel, e.g. to alert a human that something needs attention.",
+  },
+  {
+    name: "notify_teams",
+    label: "Notify Teams",
+    description:
+      "Post an internal notification to a Microsoft Teams channel. Posts as whichever person connected the account, not as a separate bot.",
+  },
+  {
+    name: "check_calendar_availability",
+    label: "Check calendar availability",
+    description:
+      "Find suggested meeting times for a set of attendees using the connected Outlook Calendar.",
+  },
+  {
+    name: "create_calendar_event",
+    label: "Create calendar event",
+    description:
+      "Create a real Outlook Calendar event and invite attendees — always requires approval.",
   },
   {
     name: "search_custom_entity",

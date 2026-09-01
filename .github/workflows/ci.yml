@@ -29,6 +29,15 @@ env:
   SLACK_CLIENT_ID: dummy-ci-slack-client-id
   SLACK_CLIENT_SECRET: dummy-ci-slack-client-secret
   SLACK_REDIRECT_URI: http://localhost:3000/api/integrations/slack/callback
+  # Same reasoning as SLACK_* above: the new Microsoft unit tests call
+  # exchangeCodeForTokens/buildMicrosoftAuthUrl directly (fetch mocked, but
+  # requireMicrosoftConfig's env check still runs for real) — added up
+  # front this time, not after a failing CI run.
+  MICROSOFT_CLIENT_ID: dummy-ci-microsoft-client-id
+  MICROSOFT_CLIENT_SECRET: dummy-ci-microsoft-client-secret
+  MICROSOFT_OUTLOOK_REDIRECT_URI: http://localhost:3000/api/integrations/outlook/callback
+  MICROSOFT_TEAMS_REDIRECT_URI: http://localhost:3000/api/integrations/teams/callback
+  MICROSOFT_CALENDAR_REDIRECT_URI: http://localhost:3000/api/integrations/outlook-calendar/callback
 
 jobs:
   ci:

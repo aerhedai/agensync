@@ -10,11 +10,23 @@ describe("requiresApprovalBeforeExecution", () => {
     expect(requiresApprovalBeforeExecution("send_email")).toBe(true);
   });
 
+  it("requires approval for create_calendar_event — a real invite can't be un-sent", () => {
+    expect(requiresApprovalBeforeExecution("create_calendar_event")).toBe(true);
+  });
+
+  it("does not require approval for internal-only notification tools", () => {
+    expect(requiresApprovalBeforeExecution("notify_slack")).toBe(false);
+    expect(requiresApprovalBeforeExecution("notify_teams")).toBe(false);
+  });
+
   it("does not require approval for read-only lookup/calculation tools", () => {
     expect(requiresApprovalBeforeExecution("find_customer")).toBe(false);
     expect(requiresApprovalBeforeExecution("find_product")).toBe(false);
     expect(requiresApprovalBeforeExecution("check_inventory")).toBe(false);
     expect(requiresApprovalBeforeExecution("calculate_quote")).toBe(false);
+    expect(requiresApprovalBeforeExecution("check_calendar_availability")).toBe(
+      false,
+    );
   });
 });
 

@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import { sendGmailMessage } from "@/lib/integrations/gmail/client";
-import { getValidGmailAccessToken } from "@/lib/integrations/integration-service";
+import { getValidEmailAccessToken } from "@/lib/integrations/integration-service";
+import { sendOutlookMessage } from "@/lib/integrations/outlook/client";
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 
 const inputSchema = {
@@ -20,8 +21,11 @@ const outputSchema = {
  * must never be able to supply which organisation's or which account's
  * credentials to use (CLAUDE.md #22), so this closes over the
  * caller-supplied values instead. actionIntegrationId null/undefined means
- * "the organisation's default Gmail account" — see
- * getValidGmailAccessToken's own doc comment.
+ * "the organisation's default email account" — see
+ * getValidEmailAccessToken's own doc comment. Provider-agnostic across
+ * Gmail and Outlook Mail: "send an email reply" is one concept to an agent
+ * regardless of which one backs it, so this resolves whichever is actually
+ * connected (or pinned) rather than assuming Gmail.
  */
 export function createSendEmailTool(
   organisationId: string,
@@ -43,11 +47,15 @@ export function createSendEmailTool(
       body: string;
     }) => {
       try {
-        const accessToken = await getValidGmailAccessToken(
+        const { provider, accessToken } = await getValidEmailAccessToken(
           organisationId,
           actionIntegrationId,
         );
-        await sendGmailMessage(accessToken, { to, subject, body });
+        if (provider === "gmail") {
+          await sendGmailMessage(accessToken, { to, subject, body });
+        } else {
+          await sendOutlookMessage(accessToken, { to, subject, body });
+        }
         return toolSuccess({ sent: true });
       } catch (error) {
         const message =

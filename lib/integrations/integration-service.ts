@@ -2,8 +2,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { Prisma } from "@/lib/generated/prisma/client";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
-import { refreshAccessToken } from "@/lib/integrations/gmail/oauth";
+import { refreshAccessToken as refreshGmailAccessToken } from "@/lib/integrations/gmail/oauth";
 import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
+import { refreshAccessToken as refreshMicrosoftAccessToken } from "@/lib/integrations/microsoft/oauth-core";
 import type { OAuthExchangeResult } from "@/lib/integrations/oauth-adapter";
 
 // Refresh a little before actual expiry so a token never goes stale
@@ -11,23 +12,30 @@ import type { OAuthExchangeResult } from "@/lib/integrations/oauth-adapter";
 const EXPIRY_SAFETY_MARGIN_MS = 60_000;
 const GMAIL_PROVIDER = "gmail";
 const SLACK_PROVIDER = "slack";
+const OUTLOOK_PROVIDER = "outlook";
+const TEAMS_PROVIDER = "teams";
+const OUTLOOK_CALENDAR_PROVIDER = "outlook-calendar";
 const WEBHOOK_PROVIDER = "webhook";
 
-interface GmailCredentials {
+interface AccessRefreshCredentials {
   accessToken: string;
   refreshToken: string;
 }
 
-function asGmailCredentials(
+// Gmail, Outlook, Teams and Outlook Calendar all store credentials in this
+// exact shape — one parser, parametrized by the label used in the error
+// message, instead of four near-identical copies.
+function asAccessRefreshCredentials(
   credentials: Record<string, unknown> | null,
-): GmailCredentials {
+  providerLabel: string,
+): AccessRefreshCredentials {
   if (
     !credentials ||
     typeof credentials.accessToken !== "string" ||
     typeof credentials.refreshToken !== "string"
   ) {
     throw new Error(
-      "Gmail integration is missing valid credentials — reconnect it from Settings.",
+      `${providerLabel} integration is missing valid credentials — reconnect it from Settings.`,
     );
   }
   return {
@@ -100,10 +108,9 @@ export function connectOAuthAccount(
     result.accountName,
     {
       // OAuthExchangeResult.config is declared as Record<string, unknown>
-      // (a generic interface, not Prisma-aware) but every adapter
-      // (gmailOAuthAdapter, slackOAuthAdapter) only ever populates it with
-      // plain strings — genuinely JSON-safe, just not provably so to
-      // Prisma.InputJsonValue's structural type.
+      // (a generic interface, not Prisma-aware) but every adapter only
+      // ever populates it with plain strings — genuinely JSON-safe, just
+      // not provably so to Prisma.InputJsonValue's structural type.
       config: result.config as Prisma.InputJsonValue,
       credentials: result.credentials,
       expiresAt: result.expiresAt,
@@ -155,6 +162,75 @@ export function getDefaultGmailIntegration(organisationId: string) {
   return getDefaultIntegrationByProvider(organisationId, GMAIL_PROVIDER);
 }
 
+export function getDefaultOutlookIntegration(organisationId: string) {
+  return getDefaultIntegrationByProvider(organisationId, OUTLOOK_PROVIDER);
+}
+
+interface RefreshResult {
+  accessToken: string;
+  expiresAt: Date;
+  // Set only by providers that may rotate the refresh token on refresh
+  // (Outlook/Teams/Outlook Calendar, via Microsoft's shared refresh
+  // endpoint) — Gmail's refresh never sets this, so the fallback below
+  // always resolves to today's exact Gmail behavior.
+  refreshToken?: string;
+}
+
+/**
+ * The shared refresh-and-persist core behind every getValidXAccessToken
+ * function below. Extracted once a second real refresh-needing provider
+ * (Outlook) existed — Gmail was the only case for a while, and the
+ * original comment here explicitly deferred generalizing "from a sample of
+ * one real refresh case"; that bar is well past met now (Outlook, Teams,
+ * and Outlook Calendar all need it too).
+ */
+async function getValidAccessToken(params: {
+  organisationId: string;
+  provider: string;
+  integrationId?: string | null;
+  parseCredentials: (
+    credentials: Record<string, unknown> | null,
+  ) => AccessRefreshCredentials;
+  refresh: (refreshToken: string) => Promise<RefreshResult>;
+  notConnectedMessage: string;
+  wrongProviderMessage: string;
+}): Promise<string> {
+  const integration = params.integrationId
+    ? await integrationRepository.findIntegrationById(
+        params.organisationId,
+        params.integrationId,
+      )
+    : await getDefaultIntegrationByProvider(
+        params.organisationId,
+        params.provider,
+      );
+  if (!integration) {
+    throw new Error(params.notConnectedMessage);
+  }
+  if (integration.provider !== params.provider) {
+    throw new Error(params.wrongProviderMessage);
+  }
+  const credentials = params.parseCredentials(integration.credentials);
+
+  const expiresSoon =
+    !integration.expiresAt ||
+    integration.expiresAt.getTime() - Date.now() < EXPIRY_SAFETY_MARGIN_MS;
+  if (!expiresSoon) {
+    return credentials.accessToken;
+  }
+
+  const refreshed = await params.refresh(credentials.refreshToken);
+  await integrationRepository.updateIntegrationCredentials(
+    integration.id,
+    {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken ?? credentials.refreshToken,
+    },
+    refreshed.expiresAt,
+  );
+  return refreshed.accessToken;
+}
+
 /**
  * Returns a Gmail access token guaranteed valid for immediate use,
  * refreshing and persisting a new one first if the stored token is expired
@@ -167,43 +243,153 @@ export function getDefaultGmailIntegration(organisationId: string) {
  * own arguments. Falls back to getDefaultGmailIntegration when omitted,
  * same behavior as before this parameter existed.
  */
-export async function getValidGmailAccessToken(
+export function getValidGmailAccessToken(
   organisationId: string,
   integrationId?: string | null,
 ): Promise<string> {
+  return getValidAccessToken({
+    organisationId,
+    provider: GMAIL_PROVIDER,
+    integrationId,
+    parseCredentials: (c) => asAccessRefreshCredentials(c, "Gmail"),
+    refresh: refreshGmailAccessToken,
+    notConnectedMessage:
+      "Gmail is not connected for this organisation. Connect it from Settings.",
+    wrongProviderMessage: "The bound action account is not a Gmail account.",
+  });
+}
+
+/** Same shape as getValidGmailAccessToken, for the Outlook Mail provider. */
+export function getValidOutlookAccessToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<string> {
+  return getValidAccessToken({
+    organisationId,
+    provider: OUTLOOK_PROVIDER,
+    integrationId,
+    parseCredentials: (c) => asAccessRefreshCredentials(c, "Outlook"),
+    refresh: refreshMicrosoftAccessToken,
+    notConnectedMessage:
+      "Outlook is not connected for this organisation. Connect it from Settings.",
+    wrongProviderMessage: "The bound action account is not an Outlook account.",
+  });
+}
+
+/** Same shape again, for the Teams provider. */
+export function getValidTeamsAccessToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<string> {
+  return getValidAccessToken({
+    organisationId,
+    provider: TEAMS_PROVIDER,
+    integrationId,
+    parseCredentials: (c) => asAccessRefreshCredentials(c, "Teams"),
+    refresh: refreshMicrosoftAccessToken,
+    notConnectedMessage:
+      "Teams is not connected for this organisation. Connect it from Settings.",
+    wrongProviderMessage: "The bound action account is not a Teams account.",
+  });
+}
+
+/** Same shape again, for the Outlook Calendar provider. */
+export function getValidOutlookCalendarAccessToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<string> {
+  return getValidAccessToken({
+    organisationId,
+    provider: OUTLOOK_CALENDAR_PROVIDER,
+    integrationId,
+    parseCredentials: (c) => asAccessRefreshCredentials(c, "Outlook Calendar"),
+    refresh: refreshMicrosoftAccessToken,
+    notConnectedMessage:
+      "Outlook Calendar is not connected for this organisation. Connect it from Settings.",
+    wrongProviderMessage:
+      "The bound action account is not an Outlook Calendar account.",
+  });
+}
+
+/**
+ * The single earliest-connected email account across *both* email
+ * providers (Gmail, Outlook) — there's only ever one "from" address for a
+ * send, so unlike getConnectedEmailIntegrations below (which returns one
+ * per provider), this picks exactly one. Earliest-connected, not
+ * "Gmail always wins": a business that only ever uses Outlook shouldn't
+ * have Gmail silently take priority the day they also connect it for an
+ * unrelated reason.
+ */
+export async function getDefaultEmailIntegration(organisationId: string) {
+  const [gmail, outlook] = await Promise.all([
+    integrationRepository.findIntegrationsByProvider(
+      organisationId,
+      GMAIL_PROVIDER,
+    ),
+    integrationRepository.findIntegrationsByProvider(
+      organisationId,
+      OUTLOOK_PROVIDER,
+    ),
+  ]);
+  return (
+    [...gmail, ...outlook].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    )[0] ?? null
+  );
+}
+
+/**
+ * Used by send_email: resolves whichever email provider is actually
+ * connected (or pinned via integrationId) and returns a valid access token
+ * for it, so the tool doesn't need to know in advance whether it's talking
+ * to Gmail or Outlook.
+ */
+export async function getValidEmailAccessToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<{ provider: "gmail" | "outlook"; accessToken: string }> {
   const integration = integrationId
     ? await integrationRepository.findIntegrationById(
         organisationId,
         integrationId,
       )
-    : await getDefaultGmailIntegration(organisationId);
+    : await getDefaultEmailIntegration(organisationId);
   if (!integration) {
     throw new Error(
-      "Gmail is not connected for this organisation. Connect it from Settings.",
+      "No email account (Gmail or Outlook) is connected for this organisation. Connect one from Settings.",
     );
   }
-  if (integration.provider !== GMAIL_PROVIDER) {
-    throw new Error("The bound action account is not a Gmail account.");
+  if (
+    integration.provider !== GMAIL_PROVIDER &&
+    integration.provider !== OUTLOOK_PROVIDER
+  ) {
+    throw new Error("The bound action account is not an email account.");
   }
-  const credentials = asGmailCredentials(integration.credentials);
+  const accessToken =
+    integration.provider === GMAIL_PROVIDER
+      ? await getValidGmailAccessToken(organisationId, integration.id)
+      : await getValidOutlookAccessToken(organisationId, integration.id);
+  return {
+    provider: integration.provider as "gmail" | "outlook",
+    accessToken,
+  };
+}
 
-  const expiresSoon =
-    !integration.expiresAt ||
-    integration.expiresAt.getTime() - Date.now() < EXPIRY_SAFETY_MARGIN_MS;
-  if (!expiresSoon) {
-    return credentials.accessToken;
-  }
-
-  const refreshed = await refreshAccessToken(credentials.refreshToken);
-  await integrationRepository.updateIntegrationCredentials(
-    integration.id,
-    {
-      accessToken: refreshed.accessToken,
-      refreshToken: credentials.refreshToken,
-    },
-    refreshed.expiresAt,
+/**
+ * Used by checkInboxAction: one default account *per* connected email
+ * provider (0–2 results), not every account of every provider — matches
+ * the existing "default = earliest per provider" semantics rather than
+ * expanding scope to "every account ever connected".
+ */
+export async function getConnectedEmailIntegrations(organisationId: string) {
+  const [gmail, outlook] = await Promise.all([
+    getDefaultGmailIntegration(organisationId),
+    getDefaultOutlookIntegration(organisationId),
+  ]);
+  return [gmail, outlook].filter(
+    (integration): integration is NonNullable<typeof integration> =>
+      integration !== null,
   );
-  return refreshed.accessToken;
 }
 
 /**

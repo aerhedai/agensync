@@ -1,9 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import * as integrationService from "@/lib/integrations/integration-service";
 import { createCalculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
 import { createCheckInventoryTool } from "@/lib/mcp/tools/check-inventory";
 import { createFindCustomerTool } from "@/lib/mcp/tools/find-customer";
 import { createFindProductTool } from "@/lib/mcp/tools/find-product";
+import { createNotifySlackTool } from "@/lib/mcp/tools/notify-slack";
 import { createSearchCustomEntityTool } from "@/lib/mcp/tools/search-custom-entity";
 import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
 
@@ -23,12 +25,34 @@ const readOnly = { readOnlyHint: true };
  * Agent.actionIntegrationId) similarly pins which *specific* connected
  * account action tools use — null/undefined keeps the pre-existing
  * "organisation's default account" behavior.
+ *
+ * An agent's actionIntegrationId is a single field shared across all of its
+ * granted action tools, but a pinned account only ever belongs to one
+ * provider (e.g. a Gmail address) — forwarding it unconditionally into
+ * every action tool's constructor would make notify_slack hard-error
+ * ("not a Slack account") for an agent pinned to Gmail, or vice versa.
+ * Resolved once here and only forwarded into the tool whose own provider
+ * matches; otherwise undefined, so that tool falls back to its own
+ * provider's organisation default instead of failing.
  */
-export function createMcpServer(
+export async function createMcpServer(
   organisationId: string,
   actionIntegrationId?: string | null,
-): McpServer {
+): Promise<McpServer> {
   const server = new McpServer({ name: "agensync-tools", version: "0.1.0" });
+
+  const actionIntegrationProvider = actionIntegrationId
+    ? ((
+        await integrationService.getIntegration(
+          organisationId,
+          actionIntegrationId,
+        )
+      )?.provider ?? null)
+    : null;
+  const gmailActionIntegrationId =
+    actionIntegrationProvider === "gmail" ? actionIntegrationId : undefined;
+  const slackActionIntegrationId =
+    actionIntegrationProvider === "slack" ? actionIntegrationId : undefined;
 
   const findCustomerTool = createFindCustomerTool(organisationId);
   server.registerTool(
@@ -92,7 +116,7 @@ export function createMcpServer(
 
   const sendEmailTool = createSendEmailTool(
     organisationId,
-    actionIntegrationId,
+    gmailActionIntegrationId,
   );
   server.registerTool(
     sendEmailTool.name,
@@ -102,6 +126,20 @@ export function createMcpServer(
       outputSchema: sendEmailTool.outputSchema,
     },
     sendEmailTool.handler,
+  );
+
+  const notifySlackTool = createNotifySlackTool(
+    organisationId,
+    slackActionIntegrationId,
+  );
+  server.registerTool(
+    notifySlackTool.name,
+    {
+      description: notifySlackTool.description,
+      inputSchema: notifySlackTool.inputSchema,
+      outputSchema: notifySlackTool.outputSchema,
+    },
+    notifySlackTool.handler,
   );
 
   return server;

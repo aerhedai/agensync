@@ -1,13 +1,16 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
+import type { Prisma } from "@/lib/generated/prisma/client";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 import { refreshAccessToken } from "@/lib/integrations/gmail/oauth";
 import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
+import type { OAuthExchangeResult } from "@/lib/integrations/oauth-adapter";
 
 // Refresh a little before actual expiry so a token never goes stale
 // mid-request.
 const EXPIRY_SAFETY_MARGIN_MS = 60_000;
 const GMAIL_PROVIDER = "gmail";
+const SLACK_PROVIDER = "slack";
 const WEBHOOK_PROVIDER = "webhook";
 
 interface GmailCredentials {
@@ -31,6 +34,21 @@ function asGmailCredentials(
     accessToken: credentials.accessToken,
     refreshToken: credentials.refreshToken,
   };
+}
+
+interface SlackCredentials {
+  botToken: string;
+}
+
+function asSlackCredentials(
+  credentials: Record<string, unknown> | null,
+): SlackCredentials {
+  if (!credentials || typeof credentials.botToken !== "string") {
+    throw new Error(
+      "Slack integration is missing valid credentials — reconnect it from Settings.",
+    );
+  }
+  return { botToken: credentials.botToken };
 }
 
 // Every connected account, across every provider — the data behind the
@@ -64,41 +82,77 @@ export function disconnectIntegration(
   return integrationRepository.deleteIntegration(organisationId, integrationId);
 }
 
+/**
+ * The generic upsert every OAuth provider's callback route
+ * (app/api/integrations/[provider]/callback) funnels through — a thin
+ * wrapper over upsertIntegration keyed on the adapter's own exchange
+ * result shape (lib/integrations/oauth-adapter.ts), so a new OAuth
+ * provider never needs its own connect* function here.
+ */
+export function connectOAuthAccount(
+  organisationId: string,
+  provider: string,
+  result: OAuthExchangeResult,
+) {
+  return integrationRepository.upsertIntegration(
+    organisationId,
+    provider,
+    result.accountName,
+    {
+      // OAuthExchangeResult.config is declared as Record<string, unknown>
+      // (a generic interface, not Prisma-aware) but every adapter
+      // (gmailOAuthAdapter, slackOAuthAdapter) only ever populates it with
+      // plain strings — genuinely JSON-safe, just not provably so to
+      // Prisma.InputJsonValue's structural type.
+      config: result.config as Prisma.InputJsonValue,
+      credentials: result.credentials,
+      expiresAt: result.expiresAt,
+    },
+  );
+}
+
+// Predates connectOAuthAccount (Gmail was the only OAuth provider at the
+// time) — kept as its own function so existing callers/tests don't need to
+// build a GmailTokens value into an OAuthExchangeResult shape by hand.
 export function connectGmailAccount(
   organisationId: string,
   email: string,
   tokens: GmailTokens,
 ) {
-  return integrationRepository.upsertIntegration(
-    organisationId,
-    GMAIL_PROVIDER,
-    email,
-    {
-      config: { email },
-      credentials: {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      },
-      expiresAt: tokens.expiresAt,
+  return connectOAuthAccount(organisationId, GMAIL_PROVIDER, {
+    accountName: email,
+    config: { email },
+    credentials: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
     },
-  );
+    expiresAt: tokens.expiresAt,
+  });
 }
 
 /**
- * "Default" = earliest-connected Gmail account for this organisation.
- * There's no concept yet of a workflow picking a specific account — every
- * org-wide Gmail action (the dashboard's "Check inbox" button, the
- * send_email tool) uses whichever account was connected first. Correct by
- * construction for the common case (one account), a real known limitation
- * once a business connects two and expects both to be used — flagged
+ * "Default" = earliest-connected account of this provider for this
+ * organisation. There's no concept yet of a workflow picking a specific
+ * account by default — every org-wide action for a provider uses whichever
+ * account was connected first, unless a caller pins a specific
+ * integrationId (see getValidGmailAccessToken/getSlackBotToken). Correct by
+ * construction for the common case (one account), a known limitation once
+ * a business connects two and expects both to be used by default — flagged
  * here deliberately rather than silently papered over.
  */
-export async function getDefaultGmailIntegration(organisationId: string) {
+export async function getDefaultIntegrationByProvider(
+  organisationId: string,
+  provider: string,
+) {
   const integrations = await integrationRepository.findIntegrationsByProvider(
     organisationId,
-    GMAIL_PROVIDER,
+    provider,
   );
   return integrations[0] ?? null;
+}
+
+export function getDefaultGmailIntegration(organisationId: string) {
+  return getDefaultIntegrationByProvider(organisationId, GMAIL_PROVIDER);
 }
 
 /**
@@ -150,6 +204,36 @@ export async function getValidGmailAccessToken(
     refreshed.expiresAt,
   );
   return refreshed.accessToken;
+}
+
+/**
+ * Returns a Slack bot token for immediate use. Unlike getValidGmailAccessToken,
+ * there's no refresh branch — Slack bot tokens don't expire in the standard
+ * (non-token-rotation) OAuth flow this app uses, so once connected, a
+ * token is valid until the business disconnects or revokes it. integrationId
+ * pins to a specific connected workspace the same way as Gmail's version;
+ * omitted, falls back to the organisation's default (earliest-connected)
+ * Slack workspace.
+ */
+export async function getSlackBotToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<string> {
+  const integration = integrationId
+    ? await integrationRepository.findIntegrationById(
+        organisationId,
+        integrationId,
+      )
+    : await getDefaultIntegrationByProvider(organisationId, SLACK_PROVIDER);
+  if (!integration) {
+    throw new Error(
+      "Slack is not connected for this organisation. Connect it from Settings.",
+    );
+  }
+  if (integration.provider !== SLACK_PROVIDER) {
+    throw new Error("The bound action account is not a Slack account.");
+  }
+  return asSlackCredentials(integration.credentials).botToken;
 }
 
 /**

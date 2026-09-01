@@ -16,6 +16,12 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.url().optional(),
+  // Optional: Slack integration (notify_slack), same treatment as the
+  // Google vars above — the rest of the app runs fine without these, only
+  // /settings' "Add Slack account" flow needs them.
+  SLACK_CLIENT_ID: z.string().optional(),
+  SLACK_CLIENT_SECRET: z.string().optional(),
+  SLACK_REDIRECT_URI: z.url().optional(),
   // Required: every page/action resolves org context through Clerk now
   // (lib/organisations/current-organisation.ts) — there's no working app
   // without these, unlike the opt-in Gmail vars above.

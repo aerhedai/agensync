@@ -59,7 +59,7 @@ describe("MCP tool server", () => {
       },
     });
 
-    const server = createMcpServer(organisationId);
+    const server = await createMcpServer(organisationId);
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
 
@@ -79,7 +79,7 @@ describe("MCP tool server", () => {
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
-  it("lists all six tools", async () => {
+  it("lists all seven tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
@@ -88,6 +88,7 @@ describe("MCP tool server", () => {
       "check_inventory",
       "find_customer",
       "find_product",
+      "notify_slack",
       "search_custom_entity",
       "send_email",
     ]);
@@ -227,6 +228,34 @@ describe("MCP tool server", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatchObject([
       { type: "text", text: expect.stringContaining("Gmail is not connected") },
+    ]);
+  });
+
+  it("notify_slack reports a tool error when Slack isn't connected for the organisation", async () => {
+    const result = await client.callTool({
+      name: "notify_slack",
+      arguments: { channel: "#general", message: "A quote needs approval." },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Slack is not connected") },
+    ]);
+  });
+
+  it("notify_slack is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
+    const result = await client.callTool({
+      name: "notify_slack",
+      arguments: {
+        channel: "#general",
+        message: "A quote needs approval.",
+        organisationId: "some-other-org",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Slack is not connected") },
     ]);
   });
 

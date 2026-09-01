@@ -169,4 +169,110 @@ describe("dispatchInboundMessage", () => {
 
     await prisma.organisation.delete({ where: { id: otherOrg.id } });
   });
+
+  it("never lets the sender's address influence classification — found live: an address containing a keyword substring silently misrouted every message", async () => {
+    // Self-contained org/agents so keyword-based deterministic routing
+    // (irrelevant to the rest of this file, which relies on the LLM
+    // classifier always firing) can't affect the other tests above.
+    const orgId = "test-org-dispatch-sender-isolation";
+    await prisma.organisation.create({
+      data: { id: orgId, clerkOrgId: orgId, name: "Sender Isolation Org" },
+    });
+    const classifier = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Classifier",
+        description: "Routes inbound messages.",
+        instructions: "Decide which agent should handle this message.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+    const quoteAgent = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Quote Agent",
+        description: "Handles price quotes.",
+        instructions: "Handle the quote request.",
+        model: "test-model",
+        status: "ACTIVE",
+        keywords: ["price"],
+      },
+    });
+    const complaintsAgent = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Complaints Agent",
+        description: "Handles complaints.",
+        instructions: "Handle the complaint.",
+        model: "test-model",
+        status: "ACTIVE",
+        keywords: ["broken"],
+      },
+    });
+    const workflow = await prisma.workflow.create({
+      data: {
+        organisationId: orgId,
+        name: "Email Handling",
+        description: "Test workflow.",
+        trigger: "EMAIL",
+        status: "ACTIVE",
+      },
+    });
+    await prisma.workflowAgent.createMany({
+      data: [
+        { workflowId: workflow.id, agentId: classifier.id, role: "CLASSIFIER" },
+        { workflowId: workflow.id, agentId: quoteAgent.id, role: "HANDLER" },
+        {
+          workflowId: workflow.id,
+          agentId: complaintsAgent.id,
+          role: "HANDLER",
+        },
+      ],
+    });
+
+    try {
+      // Message content matches only the Complaints Agent's keyword
+      // ("broken"); the sender's own address happens to contain the Quote
+      // Agent's keyword ("...price@..."). Only one scripted response is
+      // loaded — if the sender's address leaked into the classification
+      // text and caused an LLM classifier call (or a wrong deterministic
+      // match), this throws "ran out of responses" or asserts the wrong
+      // agent, instead of routing straight to Complaints with zero LLM
+      // calls.
+      const provider = scriptedProvider([{ content: "Sorry to hear that." }]);
+      const result = await dispatchInboundMessage(
+        orgId,
+        "EMAIL",
+        "The item arrived broken.",
+        provider,
+        "jordan.price@example.com",
+      );
+
+      expect(result).toMatchObject({
+        matched: true,
+        agentId: complaintsAgent.id,
+        agentName: "Complaints Agent",
+      });
+    } finally {
+      const runs = await prisma.agentRun.findMany({
+        where: { organisationId: orgId },
+        select: { id: true },
+      });
+      const runIds = runs.map((r) => r.id);
+      await prisma.toolCall.deleteMany({
+        where: { agentRunId: { in: runIds } },
+      });
+      await prisma.runStep.deleteMany({
+        where: { agentRunId: { in: runIds } },
+      });
+      await prisma.agentRun.deleteMany({ where: { organisationId: orgId } });
+      await prisma.workflowAgent.deleteMany({
+        where: { workflowId: workflow.id },
+      });
+      await prisma.workflow.deleteMany({ where: { organisationId: orgId } });
+      await prisma.agent.deleteMany({ where: { organisationId: orgId } });
+      await prisma.organisation.deleteMany({ where: { id: orgId } });
+    }
+  });
 });

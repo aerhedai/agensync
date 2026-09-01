@@ -24,6 +24,7 @@ export const runGeneralPipeline: Pipeline = async (context) => {
   );
 
   const email =
+    context.senderEmail ??
     extractEmailDeterministically(context.input) ??
     fields?.customerEmail ??
     null;

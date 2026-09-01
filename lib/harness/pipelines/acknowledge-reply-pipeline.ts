@@ -12,7 +12,7 @@ import {
 } from "@/lib/harness/pipeline-helpers";
 import { containsForbiddenKeyword } from "@/lib/harness/pipeline-guards";
 import { failPipeline } from "@/lib/harness/pipeline-failure";
-import { proposeSendEmail } from "@/lib/harness/propose-send-email";
+import { proposeAction } from "@/lib/harness/propose-action";
 import { extractionFieldsSchema } from "@/lib/agents/extraction-fields";
 import type { Pipeline } from "@/lib/harness/types";
 
@@ -116,9 +116,12 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
     );
   }
 
-  return proposeSendEmail(context, {
-    to: email,
-    subject: context.agent.replySubjectTemplate ?? "Re: your message",
-    body,
+  return proposeAction(context, {
+    toolName: context.agent.actionTool,
+    args: {
+      to: email,
+      subject: context.agent.replySubjectTemplate ?? "Re: your message",
+      body,
+    },
   });
 };

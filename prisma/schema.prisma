@@ -211,6 +211,17 @@ model Agent {
   // guardrail any business-defined category can configure for itself.
   // Empty means no guardrail is applied.
   guardrailKeywords String[] @default([])
+  // HARNESS-only: the tool a pipeline proposes as its terminal action (see
+  // lib/harness/propose-action.ts). Not a foreign key, same reasoning as
+  // pipelineKey — tools are code, validated at runtime against the real
+  // MCP tool registry and this agent's own grants, not a DB relation.
+  // "send_email" is the only tool that makes sense here today (the only
+  // approval-gated, customer-facing action that exists); this field exists
+  // now, ahead of a second one, so adding create_invoice/post_slack_message
+  // later (once real integrations exist) is additive to the pipeline layer,
+  // not a rewrite of it — same reasoning as the AIProvider abstraction
+  // existing before a second AI provider did.
+  actionTool String @default("send_email")
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
   runs                AgentRun[]

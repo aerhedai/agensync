@@ -16,8 +16,9 @@ export function runAgentByExecutionMode(
   agent: Agent,
   input: string,
   provider: AIProvider = getAIProvider(),
+  senderEmail: string | null = null,
 ): Promise<RunResult> {
   return agent.executionMode === "HARNESS"
-    ? runHarnessPipeline(agent, input, provider)
+    ? runHarnessPipeline(agent, input, provider, senderEmail)
     : runAgent(agent, input, provider);
 }

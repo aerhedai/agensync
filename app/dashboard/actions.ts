@@ -9,6 +9,7 @@ import {
   markGmailMessageRead,
 } from "@/lib/integrations/gmail/client";
 import * as integrationService from "@/lib/integrations/integration-service";
+import { extractEmailDeterministically } from "@/lib/harness/pipeline-helpers";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import { dispatchInboundMessage } from "@/lib/routing/dispatch";
 
@@ -32,11 +33,23 @@ export async function checkInboxAction() {
 
     for (const summary of unread) {
       const message = await getGmailMessage(accessToken, summary.id);
-      const input = `New email received.\nFrom: ${message.from}\nSubject: ${message.subject}\n\n${cleanEmailBody(message.body)}`;
+      // Subject + body only — never the sender's address. Classification
+      // (both the keyword fast path and the LLM classifier) matches
+      // directly over this text, and a customer's own email address can
+      // accidentally contain a keyword substring (e.g. "...price@..."
+      // silently routing everything to the Quote Agent, found live). The
+      // sender is passed separately below, used only for identification.
+      const input = `New email received.\nSubject: ${message.subject}\n\n${cleanEmailBody(message.body)}`;
+      // Gmail's "From" header is "Display Name <address@example.com>", not
+      // a bare address — pull just the address out before using it for
+      // identification (find_customer / reply-to).
+      const senderEmail = extractEmailDeterministically(message.from);
       const result = await dispatchInboundMessage(
         organisation.id,
         "EMAIL",
         input,
+        undefined,
+        senderEmail,
       );
 
       if (result.matched) {

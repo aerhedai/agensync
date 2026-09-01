@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/db/prisma";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
+import {
+  DEFAULT_COMPLAINTS_EXTRACTION_FIELDS,
+  DEFAULT_COMPLAINTS_GUARDRAIL_KEYWORDS,
+  DEFAULT_GENERAL_EXTRACTION_FIELDS,
+} from "@/lib/agents/default-agent-config";
 import type { Workflow } from "@/lib/generated/prisma/client";
 
 export interface ProvisionEmailWorkflowProduct {
@@ -35,11 +40,16 @@ export interface ProvisionEmailWorkflowConfig {
  * onboards through, replacing what used to only exist as inline logic in
  * prisma/seed.ts forked by hand per business.
  *
- * The three handler *pipelines* (lib/harness/pipelines/) stay fixed,
- * vetted code — a business gets to configure keywords, model, currency,
- * and catalog, not author a new pipeline shape from scratch (see this
- * project's neuro-symbolic harness design: tool sequencing is deterministic
- * code, never LLM- or config-decided).
+ * Complaints and General Inquiry are starter *instances* of the generic
+ * "acknowledge_reply" pipeline (lib/harness/pipelines/) — this function
+ * just picks sensible defaults for them (extraction fields, guardrail
+ * keywords, instructions). A business can add further categories of its
+ * own the same way, entirely through data (Agent.extractionFields/
+ * guardrailKeywords/instructions), with no new pipeline file. Quote stays
+ * a real coded pipeline — it's a dependent multi-step tool chain, not
+ * something a business can configure into existence (this project's
+ * neuro-symbolic harness design: tool *sequencing* is deterministic code,
+ * never LLM- or config-decided, see CLAUDE.md #24/#30).
  *
  * Idempotent via deterministic ids derived from organisationId (not fixed
  * ids like "seed-agent-quote", which only work for a single hardcoded demo
@@ -69,6 +79,8 @@ export async function provisionEmailWorkflow(
     pipelineKey: null as string | null,
     keywords: [] as string[],
     toolNames: [] as string[],
+    extractionFields: [] as { name: string; description: string }[],
+    guardrailKeywords: [] as string[],
   };
 
   const handlers = [
@@ -90,6 +102,8 @@ export async function provisionEmailWorkflow(
         "calculate_quote",
         "send_email",
       ],
+      extractionFields: [] as { name: string; description: string }[],
+      guardrailKeywords: [] as string[],
     },
     {
       id: `${organisationId}-agent-complaints`,
@@ -100,9 +114,11 @@ export async function provisionEmailWorkflow(
         "A customer has a complaint. Acknowledge their concern specifically, never promise compensation, and let them know a team member will follow up.",
       model: config.model,
       executionMode: "HARNESS" as const,
-      pipelineKey: "complaints",
+      pipelineKey: "acknowledge_reply",
       keywords: config.complaintsKeywords,
       toolNames: ["find_customer", "send_email"],
+      extractionFields: DEFAULT_COMPLAINTS_EXTRACTION_FIELDS,
+      guardrailKeywords: DEFAULT_COMPLAINTS_GUARDRAIL_KEYWORDS,
     },
     {
       id: `${organisationId}-agent-general`,
@@ -113,9 +129,11 @@ export async function provisionEmailWorkflow(
         "Answer the inquiry helpfully and directly. If there isn't enough information to answer accurately, say so rather than guessing.",
       model: config.model,
       executionMode: "HARNESS" as const,
-      pipelineKey: "general",
+      pipelineKey: "acknowledge_reply",
       keywords: [] as string[],
       toolNames: ["find_customer", "send_email"],
+      extractionFields: DEFAULT_GENERAL_EXTRACTION_FIELDS,
+      guardrailKeywords: [] as string[],
     },
   ];
 
@@ -131,6 +149,8 @@ export async function provisionEmailWorkflow(
         executionMode: agent.executionMode,
         pipelineKey: agent.pipelineKey,
         keywords: agent.keywords,
+        extractionFields: agent.extractionFields,
+        guardrailKeywords: agent.guardrailKeywords,
       },
       create: {
         id: agent.id,
@@ -142,6 +162,8 @@ export async function provisionEmailWorkflow(
         executionMode: agent.executionMode,
         pipelineKey: agent.pipelineKey,
         keywords: agent.keywords,
+        extractionFields: agent.extractionFields,
+        guardrailKeywords: agent.guardrailKeywords,
         status: "ACTIVE",
       },
     });

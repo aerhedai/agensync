@@ -18,6 +18,7 @@ export async function runHarnessPipeline(
   agent: Agent,
   input: string,
   provider: AIProvider = getAIProvider(),
+  senderEmail: string | null = null,
 ): Promise<RunResult> {
   const run = await runRepository.createRun(
     agent.organisationId,
@@ -55,6 +56,7 @@ export async function runHarnessPipeline(
       organisation,
       agent,
       input,
+      senderEmail,
       mcpClient,
       provider,
       allowedTools,

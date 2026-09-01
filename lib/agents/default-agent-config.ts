@@ -22,3 +22,40 @@ export const DEFAULT_COMPLAINTS_KEYWORDS = [
   "broken",
   "refund",
 ];
+
+// Both Complaints and General Inquiry are now the same "acknowledge_reply"
+// pipeline (lib/harness/pipelines/acknowledge-reply-pipeline.ts) —
+// data-driven, not separate code files. These are the extraction
+// fields/guardrail that reproduce their pre-generalization behaviour
+// exactly, used both for new-org provisioning and as a reference point
+// for a business defining their own category from scratch.
+export const DEFAULT_COMPLAINTS_EXTRACTION_FIELDS = [
+  {
+    name: "complaintSummary",
+    description: "a short one-sentence summary of what they are unhappy about",
+  },
+];
+
+// Case-insensitive substring match (lib/harness/pipeline-guards.ts) — a
+// composed reply containing any of these is refused, never proposed for
+// approval. Stems ("compensat", "waive") rather than exact words, so this
+// still catches "compensation"/"compensate" and "waived"/"waives" the way
+// the original regex this replaces did.
+export const DEFAULT_COMPLAINTS_GUARDRAIL_KEYWORDS = [
+  "refund",
+  "reimburse",
+  "replacement",
+  "discount",
+  "compensat",
+  "free item",
+  "free product",
+  "money back",
+  "waive",
+];
+
+export const DEFAULT_GENERAL_EXTRACTION_FIELDS = [
+  {
+    name: "question",
+    description: "a short summary of what they are asking",
+  },
+];

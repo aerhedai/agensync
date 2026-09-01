@@ -56,7 +56,9 @@ export const runQuotePipeline: Pipeline = async (context) => {
   }
 
   const email =
-    extractEmailDeterministically(context.input) ?? fields.customerEmail;
+    context.senderEmail ??
+    extractEmailDeterministically(context.input) ??
+    fields.customerEmail;
 
   let customerName: string | null = null;
   if (email) {

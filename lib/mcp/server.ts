@@ -4,6 +4,7 @@ import { createCalculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
 import { createCheckInventoryTool } from "@/lib/mcp/tools/check-inventory";
 import { createFindCustomerTool } from "@/lib/mcp/tools/find-customer";
 import { createFindProductTool } from "@/lib/mcp/tools/find-product";
+import { createSearchCustomEntityTool } from "@/lib/mcp/tools/search-custom-entity";
 import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
 
 // The four Phase 5 tools are read-only lookups/calculations. send_email
@@ -69,6 +70,18 @@ export function createMcpServer(organisationId: string): McpServer {
       annotations: readOnly,
     },
     calculateQuoteTool.handler,
+  );
+
+  const searchCustomEntityTool = createSearchCustomEntityTool(organisationId);
+  server.registerTool(
+    searchCustomEntityTool.name,
+    {
+      description: searchCustomEntityTool.description,
+      inputSchema: searchCustomEntityTool.inputSchema,
+      outputSchema: searchCustomEntityTool.outputSchema,
+      annotations: readOnly,
+    },
+    searchCustomEntityTool.handler,
   );
 
   const sendEmailTool = createSendEmailTool(organisationId);

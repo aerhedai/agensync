@@ -28,13 +28,21 @@ function parseAgentForm(formData: FormData) {
   // reliable as long as rows are only added/removed, never reordered.
   const fieldNames = formData.getAll("extractionFieldName");
   const fieldDescriptions = formData.getAll("extractionFieldDescription");
-  const extractionFields = fieldNames.map((name, i) => ({
-    name: typeof name === "string" ? name : "",
-    description:
-      typeof fieldDescriptions[i] === "string"
-        ? (fieldDescriptions[i] as string)
-        : "",
-  }));
+  const fieldLookupEntityTypes = formData.getAll(
+    "extractionFieldLookupEntityType",
+  );
+  const extractionFields = fieldNames.map((name, i) => {
+    const lookupEntityType = fieldLookupEntityTypes[i];
+    return {
+      name: typeof name === "string" ? name : "",
+      description:
+        typeof fieldDescriptions[i] === "string"
+          ? (fieldDescriptions[i] as string)
+          : "",
+      ...(typeof lookupEntityType === "string" &&
+        lookupEntityType.length > 0 && { lookupEntityType }),
+    };
+  });
 
   return agentInputSchema.safeParse({
     name: formData.get("name"),

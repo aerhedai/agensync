@@ -41,6 +41,23 @@ describe("MCP tool server", () => {
         company: "Customer ABC Ltd",
       },
     });
+    const propertyType = await prisma.customEntityType.create({
+      data: {
+        organisationId,
+        name: "Property",
+        fields: [
+          { name: "address", description: "the property address" },
+          { name: "tenant", description: "the current tenant's name" },
+        ],
+      },
+    });
+    await prisma.customEntityRecord.create({
+      data: {
+        organisationId,
+        entityTypeId: propertyType.id,
+        data: { address: "14 Birch Road", tenant: "Jordan Reyes" },
+      },
+    });
 
     const server = createMcpServer(organisationId);
     const [clientTransport, serverTransport] =
@@ -57,10 +74,12 @@ describe("MCP tool server", () => {
     await client.close();
     await prisma.product.deleteMany({ where: { organisationId } });
     await prisma.customer.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({ where: { organisationId } });
+    await prisma.customEntityType.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
-  it("lists all five tools", async () => {
+  it("lists all six tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
@@ -69,6 +88,7 @@ describe("MCP tool server", () => {
       "check_inventory",
       "find_customer",
       "find_product",
+      "search_custom_entity",
       "send_email",
     ]);
   });
@@ -207,6 +227,54 @@ describe("MCP tool server", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatchObject([
       { type: "text", text: expect.stringContaining("Gmail is not connected") },
+    ]);
+  });
+
+  it("search_custom_entity finds a record by any field, not just a fixed one", async () => {
+    const result = await client.callTool({
+      name: "search_custom_entity",
+      arguments: { entityType: "Property", query: "Birch" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      found: true,
+      records: [{ data: { address: "14 Birch Road", tenant: "Jordan Reyes" } }],
+    });
+  });
+
+  it("search_custom_entity matches on a field other than the first one", async () => {
+    const result = await client.callTool({
+      name: "search_custom_entity",
+      arguments: { entityType: "Property", query: "Jordan Reyes" },
+    });
+
+    expect(result.structuredContent).toMatchObject({ found: true });
+  });
+
+  it("search_custom_entity reports not found for no match", async () => {
+    const result = await client.callTool({
+      name: "search_custom_entity",
+      arguments: { entityType: "Property", query: "nonexistent" },
+    });
+
+    expect(result.structuredContent).toEqual({ found: false, records: [] });
+  });
+
+  it("search_custom_entity errors clearly for an entity type that doesn't exist", async () => {
+    const result = await client.callTool({
+      name: "search_custom_entity",
+      arguments: { entityType: "NotARealType", query: "anything" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining(
+          'No custom entity type named "NotARealType"',
+        ),
+      },
     ]);
   });
 });

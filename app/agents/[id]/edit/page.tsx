@@ -4,6 +4,7 @@ import { updateAgentAction } from "@/app/agents/actions";
 import { AgentForm } from "@/components/agents/agent-form";
 import * as agentService from "@/lib/agents/agent-service";
 import { extractionFieldsSchema } from "@/lib/agents/extraction-fields";
+import * as entityTypeService from "@/lib/entities/entity-type-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
 export default async function EditAgentPage({
@@ -11,7 +12,10 @@ export default async function EditAgentPage({
 }: PageProps<"/agents/[id]/edit">) {
   const { id } = await params;
   const organisation = await getCurrentOrganisation();
-  const agent = await agentService.getAgent(organisation.id, id);
+  const [agent, entityTypes] = await Promise.all([
+    agentService.getAgent(organisation.id, id),
+    entityTypeService.listEntityTypes(organisation.id),
+  ]);
 
   if (!agent) {
     notFound();
@@ -30,6 +34,7 @@ export default async function EditAgentPage({
           ),
         }}
         submitLabel="Save changes"
+        entityTypeNames={entityTypes.map((e) => e.name)}
       />
     </div>
   );

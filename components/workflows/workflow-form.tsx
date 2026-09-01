@@ -70,12 +70,15 @@ export function WorkflowForm() {
           className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
         >
           <option value="EMAIL">Email</option>
+          <option value="WEBHOOK">Webhook</option>
         </select>
         <p className="text-xs text-muted-foreground">
-          Email is the only trigger available today — more (Slack, forms,
-          webhooks) are on the way. This workflow starts as a draft: build it
-          out by adding a classifier and handler agents, then activate it when
-          it&rsquo;s ready to receive real traffic.
+          Webhook lets anything that can send a JSON POST (a form backend,
+          Zapier, another internal system) trigger this workflow — set up the
+          URL and secret from Settings → Integrations after creating this. More
+          triggers (Slack, forms) are on the way. This workflow starts as a
+          draft: build it out by adding a classifier and handler agents, then
+          activate it when it&rsquo;s ready to receive real traffic.
         </p>
         {state.fieldErrors?.trigger && (
           <p className="text-sm text-destructive">

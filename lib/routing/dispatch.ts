@@ -1,5 +1,6 @@
 import type { AIProvider } from "@/lib/ai/provider";
 import { getAIProvider } from "@/lib/ai/get-provider";
+import type { WorkflowTriggerType } from "@/lib/generated/prisma/client";
 import { classifyIntent } from "@/lib/routing/classify-intent";
 import { deterministicClassify } from "@/lib/routing/deterministic-classify";
 import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
@@ -31,15 +32,15 @@ export type DispatchResult =
  */
 export async function dispatchInboundMessage(
   organisationId: string,
-  trigger: "EMAIL",
+  trigger: WorkflowTriggerType,
   input: string,
   provider: AIProvider = getAIProvider(),
   senderEmail: string | null = null,
 ): Promise<DispatchResult> {
-  const workflow =
-    trigger === "EMAIL"
-      ? await workflowService.findActiveEmailWorkflow(organisationId)
-      : null;
+  const workflow = await workflowService.findActiveWorkflowForTrigger(
+    organisationId,
+    trigger,
+  );
   if (!workflow) {
     return { matched: false, reason: "no_workflow" };
   }

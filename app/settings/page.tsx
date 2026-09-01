@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+
 import { BusinessProfileForm } from "@/components/settings/business-profile-form";
 import { IntegrationsSection } from "@/components/settings/integrations-section";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +23,14 @@ export default async function SettingsPage({
   const integrations = await integrationService.listIntegrations(
     organisation.id,
   );
+
+  // Derived from the actual incoming request rather than a hardcoded env
+  // var — correct in local dev, Preview, and Production without needing
+  // to keep a base-URL config value in sync with wherever this is running.
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") ?? "localhost:3000";
+  const protocol = host.startsWith("localhost") ? "http" : "https";
+  const baseUrl = `${protocol}://${host}`;
 
   // credentials never leaves the server — strip it before this crosses
   // into the client component, not just trust the client not to read it.
@@ -66,6 +76,7 @@ export default async function SettingsPage({
                   `Couldn't connect Gmail: ${gmailError}`)
                 : undefined
             }
+            baseUrl={baseUrl}
           />
         </CardContent>
       </Card>

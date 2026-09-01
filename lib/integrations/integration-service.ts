@@ -1,3 +1,5 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
+
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 import { refreshAccessToken } from "@/lib/integrations/gmail/oauth";
 import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
@@ -6,6 +8,7 @@ import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
 // mid-request.
 const EXPIRY_SAFETY_MARGIN_MS = 60_000;
 const GMAIL_PROVIDER = "gmail";
+const WEBHOOK_PROVIDER = "webhook";
 
 interface GmailCredentials {
   accessToken: string;
@@ -124,4 +127,52 @@ export async function getValidGmailAccessToken(
     refreshed.expiresAt,
   );
   return refreshed.accessToken;
+}
+
+/**
+ * Creates a new webhook account and returns the plaintext secret exactly
+ * once — every other read of this integration only ever sees the
+ * encrypted form. The caller (the one-time confirmation UI) must show it
+ * immediately and never persist or log it itself.
+ */
+export async function connectWebhookAccount(
+  organisationId: string,
+  name: string,
+) {
+  const secret = randomBytes(32).toString("hex");
+  const integration = await integrationRepository.upsertIntegration(
+    organisationId,
+    WEBHOOK_PROVIDER,
+    name,
+    { config: {}, credentials: { secret } },
+  );
+  return { integration, secret };
+}
+
+/**
+ * The entire authentication boundary for the inbound webhook endpoint,
+ * which has no session — a timing side-channel on the secret comparison
+ * here is a real vulnerability, not a theoretical one, hence
+ * timingSafeEqual rather than `===`.
+ */
+export async function verifyWebhookSecret(
+  integrationId: string,
+  providedSecret: string,
+): Promise<{ organisationId: string } | null> {
+  const integration =
+    await integrationRepository.findIntegrationByIdUnscoped(integrationId);
+  if (!integration || integration.provider !== WEBHOOK_PROVIDER) {
+    return null;
+  }
+  const storedSecret = integration.credentials?.secret;
+  if (typeof storedSecret !== "string") {
+    return null;
+  }
+
+  const stored = Buffer.from(storedSecret);
+  const provided = Buffer.from(providedSecret);
+  if (stored.length !== provided.length || !timingSafeEqual(stored, provided)) {
+    return null;
+  }
+  return { organisationId: integration.organisationId };
 }

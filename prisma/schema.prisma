@@ -51,8 +51,15 @@ enum ApprovalStatus {
   REJECTED
 }
 
+// Stays a real Postgres enum, unlike Integration.provider — a new trigger
+// type always needs real new application code (a new inbound endpoint, a
+// new payload-normalization step) regardless of whether this is an enum
+// or a string, so there's no "avoid a migration for every new plugin"
+// argument here the way there was for provider/pipelineKey/actionTool.
+// Small, code-defined, closed set — same category as AgentExecutionMode.
 enum WorkflowTriggerType {
   EMAIL
+  WEBHOOK
 }
 
 enum WorkflowAgentRole {

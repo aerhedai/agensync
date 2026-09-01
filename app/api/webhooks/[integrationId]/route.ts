@@ -80,6 +80,7 @@ export async function POST(
     input,
     getAIProvider(),
     senderEmail ?? null,
+    integrationId,
   );
 
   if (!result.matched) {

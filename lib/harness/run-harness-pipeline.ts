@@ -30,7 +30,10 @@ export async function runHarnessPipeline(
   });
   await runRepository.addRunStep(run.id, "INPUT_RECEIVED", input);
 
-  const mcpClient = await connectMcpClient(agent.organisationId);
+  const mcpClient = await connectMcpClient(
+    agent.organisationId,
+    agent.actionIntegrationId,
+  );
 
   try {
     const pipeline = getPipeline(agent.pipelineKey);

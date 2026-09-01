@@ -301,7 +301,10 @@ export async function runAgent(
   });
   await runRepository.addRunStep(run.id, "INPUT_RECEIVED", input);
 
-  const mcpClient = await connectMcpClient(agent.organisationId);
+  const mcpClient = await connectMcpClient(
+    agent.organisationId,
+    agent.actionIntegrationId,
+  );
 
   try {
     const allowedTools = new Set(
@@ -392,7 +395,10 @@ export async function resumeRun(
   );
   await runRepository.markRunStatus(runId, "RUNNING");
 
-  const mcpClient = await connectMcpClient(organisationId);
+  const mcpClient = await connectMcpClient(
+    organisationId,
+    run.agent.actionIntegrationId,
+  );
 
   try {
     // Now that a human has approved it, actually run the call that was

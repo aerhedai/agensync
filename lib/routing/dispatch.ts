@@ -29,6 +29,12 @@ export type DispatchResult =
  * instead, used only for identification (find_customer / reply-to) by the
  * harness pipelines — it never influences what a message is classified as
  * or what gets extracted from it.
+ *
+ * triggerIntegrationId narrows the workflow lookup to one bound to that
+ * specific connected account (see Workflow.triggerIntegrationId's
+ * schema.prisma comment) — null (the default) matches the generic
+ * org-wide workflow for this trigger type, today's only behavior for
+ * triggers with no natural per-account binding (e.g. EMAIL).
  */
 export async function dispatchInboundMessage(
   organisationId: string,
@@ -36,10 +42,12 @@ export async function dispatchInboundMessage(
   input: string,
   provider: AIProvider = getAIProvider(),
   senderEmail: string | null = null,
+  triggerIntegrationId: string | null = null,
 ): Promise<DispatchResult> {
-  const workflow = await workflowService.findActiveWorkflowForTrigger(
+  const workflow = await workflowService.findActiveWorkflowForDispatch(
     organisationId,
     trigger,
+    triggerIntegrationId,
   );
   if (!workflow) {
     return { matched: false, reason: "no_workflow" };

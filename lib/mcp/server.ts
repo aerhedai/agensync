@@ -19,9 +19,15 @@ const readOnly = { readOnlyHint: true };
  * server instance serves — send_email needs it to look up the right
  * Gmail credentials, and CLAUDE.md #22 requires every organisation-scoped
  * action to be explicitly scoped, not resolved via a global fallback deep
- * inside a tool handler.
+ * inside a tool handler. actionIntegrationId (an agent's
+ * Agent.actionIntegrationId) similarly pins which *specific* connected
+ * account action tools use — null/undefined keeps the pre-existing
+ * "organisation's default account" behavior.
  */
-export function createMcpServer(organisationId: string): McpServer {
+export function createMcpServer(
+  organisationId: string,
+  actionIntegrationId?: string | null,
+): McpServer {
   const server = new McpServer({ name: "agensync-tools", version: "0.1.0" });
 
   const findCustomerTool = createFindCustomerTool(organisationId);
@@ -84,7 +90,10 @@ export function createMcpServer(organisationId: string): McpServer {
     searchCustomEntityTool.handler,
   );
 
-  const sendEmailTool = createSendEmailTool(organisationId);
+  const sendEmailTool = createSendEmailTool(
+    organisationId,
+    actionIntegrationId,
+  );
   server.registerTool(
     sendEmailTool.name,
     {

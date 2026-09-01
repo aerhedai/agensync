@@ -15,12 +15,18 @@ const outputSchema = {
 };
 
 /**
- * organisationId is bound at server-construction time (see
- * lib/mcp/server.ts), never taken as a tool argument — the LLM must never
- * be able to supply which organisation's credentials to use (CLAUDE.md
- * #22), so this closes over the caller-supplied org instead.
+ * organisationId (and actionIntegrationId) are bound at server-construction
+ * time (see lib/mcp/server.ts), never taken as a tool argument — the LLM
+ * must never be able to supply which organisation's or which account's
+ * credentials to use (CLAUDE.md #22), so this closes over the
+ * caller-supplied values instead. actionIntegrationId null/undefined means
+ * "the organisation's default Gmail account" — see
+ * getValidGmailAccessToken's own doc comment.
  */
-export function createSendEmailTool(organisationId: string) {
+export function createSendEmailTool(
+  organisationId: string,
+  actionIntegrationId?: string | null,
+) {
   return {
     name: "send_email",
     description:
@@ -37,7 +43,10 @@ export function createSendEmailTool(organisationId: string) {
       body: string;
     }) => {
       try {
-        const accessToken = await getValidGmailAccessToken(organisationId);
+        const accessToken = await getValidGmailAccessToken(
+          organisationId,
+          actionIntegrationId,
+        );
         await sendGmailMessage(accessToken, { to, subject, body });
         return toolSuccess({ sent: true });
       } catch (error) {

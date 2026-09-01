@@ -5,6 +5,7 @@ import { AgentForm } from "@/components/agents/agent-form";
 import * as agentService from "@/lib/agents/agent-service";
 import { extractionFieldsSchema } from "@/lib/agents/extraction-fields";
 import * as entityTypeService from "@/lib/entities/entity-type-service";
+import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
 export default async function EditAgentPage({
@@ -12,9 +13,10 @@ export default async function EditAgentPage({
 }: PageProps<"/agents/[id]/edit">) {
   const { id } = await params;
   const organisation = await getCurrentOrganisation();
-  const [agent, entityTypes] = await Promise.all([
+  const [agent, entityTypes, gmailIntegrations] = await Promise.all([
     agentService.getAgent(organisation.id, id),
     entityTypeService.listEntityTypes(organisation.id),
+    integrationService.listIntegrationsByProvider(organisation.id, "gmail"),
   ]);
 
   if (!agent) {
@@ -35,6 +37,10 @@ export default async function EditAgentPage({
         }}
         submitLabel="Save changes"
         entityTypeNames={entityTypes.map((e) => e.name)}
+        gmailIntegrations={gmailIntegrations.map((i) => ({
+          id: i.id,
+          name: i.name,
+        }))}
       />
     </div>
   );

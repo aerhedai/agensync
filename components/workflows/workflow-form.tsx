@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import {
@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+type TriggerType = "EMAIL" | "WEBHOOK";
+
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
@@ -21,11 +23,26 @@ function SubmitButton() {
   );
 }
 
-export function WorkflowForm() {
+export function WorkflowForm({
+  webhookIntegrations = [],
+  gmailIntegrations = [],
+}: {
+  // Offered as the required trigger account when WEBHOOK is selected —
+  // there's no generic webhook URL, only per-account ones, so this list
+  // being empty means "connect a webhook account from Settings first."
+  webhookIntegrations?: { id: string; name: string }[];
+  // Offered as the optional trigger account when EMAIL is selected — left
+  // unset, this workflow uses the organisation's default Gmail account
+  // (today's only behavior before this field existed).
+  gmailIntegrations?: { id: string; name: string }[];
+}) {
   const [state, formAction] = useActionState<WorkflowFormState, FormData>(
     createWorkflowAction,
     {},
   );
+  const [trigger, setTrigger] = useState<TriggerType>("EMAIL");
+  const accountOptions =
+    trigger === "WEBHOOK" ? webhookIntegrations : gmailIntegrations;
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -66,7 +83,8 @@ export function WorkflowForm() {
         <select
           id="trigger"
           name="trigger"
-          defaultValue="EMAIL"
+          value={trigger}
+          onChange={(e) => setTrigger(e.target.value as TriggerType)}
           className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
         >
           <option value="EMAIL">Email</option>
@@ -74,15 +92,65 @@ export function WorkflowForm() {
         </select>
         <p className="text-xs text-muted-foreground">
           Webhook lets anything that can send a JSON POST (a form backend,
-          Zapier, another internal system) trigger this workflow — set up the
-          URL and secret from Settings → Integrations after creating this. More
-          triggers (Slack, forms) are on the way. This workflow starts as a
-          draft: build it out by adding a classifier and handler agents, then
-          activate it when it&rsquo;s ready to receive real traffic.
+          Zapier, another internal system) trigger this workflow. More triggers
+          (Slack, forms) are on the way. This workflow starts as a draft: build
+          it out by adding a classifier and handler agents, then activate it
+          when it&rsquo;s ready to receive real traffic.
         </p>
         {state.fieldErrors?.trigger && (
           <p className="text-sm text-destructive">
             {state.fieldErrors.trigger[0]}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="triggerIntegrationId">
+          {trigger === "WEBHOOK" ? "Webhook account" : "Email account"}
+        </Label>
+        <select
+          id="triggerIntegrationId"
+          name="triggerIntegrationId"
+          defaultValue=""
+          required={trigger === "WEBHOOK"}
+          className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
+        >
+          <option value="" disabled={trigger === "WEBHOOK"}>
+            {trigger === "WEBHOOK"
+              ? "Select a connected webhook account…"
+              : "Organisation's default Gmail account"}
+          </option>
+          {accountOptions.map((integration) => (
+            <option key={integration.id} value={integration.id}>
+              {integration.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {trigger === "WEBHOOK" ? (
+            accountOptions.length === 0 ? (
+              <>
+                No webhook accounts connected yet — add one from Settings →
+                Integrations, then come back here.
+              </>
+            ) : (
+              <>
+                Exactly which webhook URL/secret triggers this workflow. Each
+                connected account can only be bound to one active workflow at a
+                time.
+              </>
+            )
+          ) : (
+            <>
+              Optional. Leave as default unless this business has connected more
+              than one Gmail account and this workflow should only listen on one
+              of them.
+            </>
+          )}
+        </p>
+        {state.fieldErrors?.triggerIntegrationId && (
+          <p className="text-sm text-destructive">
+            {state.fieldErrors.triggerIntegrationId[0]}
           </p>
         )}
       </div>

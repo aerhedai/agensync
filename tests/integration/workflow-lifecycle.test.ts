@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { prisma } from "@/lib/db/prisma";
+import * as integrationService from "@/lib/integrations/integration-service";
 import * as workflowService from "@/lib/workflows/workflow-service";
 
 describe("workflow lifecycle", () => {
@@ -14,6 +15,7 @@ describe("workflow lifecycle", () => {
     });
     await prisma.workflow.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
+    await prisma.integration.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
 
     await prisma.organisation.create({
@@ -55,6 +57,7 @@ describe("workflow lifecycle", () => {
     });
     await prisma.workflow.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
+    await prisma.integration.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -150,5 +153,141 @@ describe("workflow lifecycle", () => {
       where: { id: workflow.id },
     });
     expect(refreshed.status).toBe("DRAFT");
+  });
+
+  it("refuses to create a WEBHOOK workflow with no bound account — there's no generic webhook URL to fall back to", async () => {
+    await expect(
+      workflowService.createWorkflow(organisationId, {
+        name: "Website Form",
+        description: "d",
+        trigger: "WEBHOOK",
+        triggerIntegrationId: null,
+      }),
+    ).rejects.toThrow(/must be bound to a specific connected account/);
+  });
+
+  it("refuses to bind a workflow to an account of the wrong provider for its trigger", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(organisationId, "Form");
+
+    await expect(
+      workflowService.createWorkflow(organisationId, {
+        name: "Wrongly Bound",
+        description: "d",
+        trigger: "EMAIL",
+        triggerIntegrationId: webhookAccount.id,
+      }),
+    ).rejects.toThrow(/must be bound to a gmail account/i);
+  });
+
+  it("two workflows on the same trigger but different bound accounts can both be active at once", async () => {
+    const { integration: accountA } =
+      await integrationService.connectWebhookAccount(organisationId, "A");
+    const { integration: accountB } =
+      await integrationService.connectWebhookAccount(organisationId, "B");
+
+    const workflowA = await workflowService.createWorkflow(organisationId, {
+      name: "Workflow A",
+      description: "d",
+      trigger: "WEBHOOK",
+      triggerIntegrationId: accountA.id,
+    });
+    await workflowService.addMember(
+      organisationId,
+      workflowA.id,
+      classifierId,
+      "CLASSIFIER",
+    );
+    await workflowService.addMember(
+      organisationId,
+      workflowA.id,
+      handlerId,
+      "HANDLER",
+    );
+
+    const workflowB = await workflowService.createWorkflow(organisationId, {
+      name: "Workflow B",
+      description: "d",
+      trigger: "WEBHOOK",
+      triggerIntegrationId: accountB.id,
+    });
+    await workflowService.addMember(
+      organisationId,
+      workflowB.id,
+      classifierId,
+      "CLASSIFIER",
+    );
+    await workflowService.addMember(
+      organisationId,
+      workflowB.id,
+      handlerId,
+      "HANDLER",
+    );
+
+    await workflowService.activateWorkflow(organisationId, workflowA.id);
+    await workflowService.activateWorkflow(organisationId, workflowB.id);
+
+    const refreshedA = await prisma.workflow.findUniqueOrThrow({
+      where: { id: workflowA.id },
+    });
+    const refreshedB = await prisma.workflow.findUniqueOrThrow({
+      where: { id: workflowB.id },
+    });
+    expect(refreshedA.status).toBe("ACTIVE");
+    expect(refreshedB.status).toBe("ACTIVE");
+  });
+
+  it("activating a second workflow on the same account deactivates the first", async () => {
+    const { integration: account } =
+      await integrationService.connectWebhookAccount(organisationId, "Shared");
+
+    const first = await workflowService.createWorkflow(organisationId, {
+      name: "First",
+      description: "d",
+      trigger: "WEBHOOK",
+      triggerIntegrationId: account.id,
+    });
+    await workflowService.addMember(
+      organisationId,
+      first.id,
+      classifierId,
+      "CLASSIFIER",
+    );
+    await workflowService.addMember(
+      organisationId,
+      first.id,
+      handlerId,
+      "HANDLER",
+    );
+    await workflowService.activateWorkflow(organisationId, first.id);
+
+    const second = await workflowService.createWorkflow(organisationId, {
+      name: "Second",
+      description: "d",
+      trigger: "WEBHOOK",
+      triggerIntegrationId: account.id,
+    });
+    await workflowService.addMember(
+      organisationId,
+      second.id,
+      classifierId,
+      "CLASSIFIER",
+    );
+    await workflowService.addMember(
+      organisationId,
+      second.id,
+      handlerId,
+      "HANDLER",
+    );
+    await workflowService.activateWorkflow(organisationId, second.id);
+
+    const refreshedFirst = await prisma.workflow.findUniqueOrThrow({
+      where: { id: first.id },
+    });
+    const refreshedSecond = await prisma.workflow.findUniqueOrThrow({
+      where: { id: second.id },
+    });
+    expect(refreshedFirst.status).toBe("DRAFT");
+    expect(refreshedSecond.status).toBe("ACTIVE");
   });
 });

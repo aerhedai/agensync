@@ -21,6 +21,14 @@ env:
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZHVtbXktY2xlcmsta2V5LWZvci1jaS5jbGVyay5hY2NvdW50cy5kZXYk
   CLERK_SECRET_KEY: sk_test_ZHVtbXktY2xlcmstc2VjcmV0LWtleS1mb3ItY2ktb25seQ
   TOKEN_ENCRYPTION_KEY: VAbwbKlEAJsczJIK4qu/Or5WWwOYJ86VZJ94gwtcRHM=
+  # Unlike GOOGLE_*, which no test ever exercises (Gmail's tests only pass
+  # a bare access token around), tests/unit/slack-oauth.test.ts calls
+  # exchangeSlackCode/buildSlackAuthUrl directly (fetch mocked, but
+  # requireSlackConfig's env check still runs for real) — these need to be
+  # present, not just shape-valid for build/typecheck.
+  SLACK_CLIENT_ID: dummy-ci-slack-client-id
+  SLACK_CLIENT_SECRET: dummy-ci-slack-client-secret
+  SLACK_REDIRECT_URI: http://localhost:3000/api/integrations/slack/callback
 
 jobs:
   ci:

@@ -45,7 +45,8 @@ export const agentInputSchema = z
   })
   .transform(({ categoryType, ...rest }) => ({
     ...rest,
-    executionMode: categoryType === "loop" ? ("LOOP" as const) : ("HARNESS" as const),
+    executionMode:
+      categoryType === "loop" ? ("LOOP" as const) : ("HARNESS" as const),
     pipelineKey: categoryType === "loop" ? null : categoryType,
   }));
 

@@ -31,7 +31,9 @@ function parseAgentForm(formData: FormData) {
   const extractionFields = fieldNames.map((name, i) => ({
     name: typeof name === "string" ? name : "",
     description:
-      typeof fieldDescriptions[i] === "string" ? (fieldDescriptions[i] as string) : "",
+      typeof fieldDescriptions[i] === "string"
+        ? (fieldDescriptions[i] as string)
+        : "",
   }));
 
   return agentInputSchema.safeParse({

@@ -33,11 +33,17 @@ export const extractionFieldsSchema = z
   .array(extractionFieldSchema)
   .max(10)
   .refine(
-    (fields) => fields.every((f) => !RESERVED_EXTRACTION_FIELD_NAMES.includes(f.name)),
-    { message: '"customerEmail" is extracted automatically — no need to add it' },
+    (fields) =>
+      fields.every((f) => !RESERVED_EXTRACTION_FIELD_NAMES.includes(f.name)),
+    {
+      message: '"customerEmail" is extracted automatically — no need to add it',
+    },
   )
-  .refine((fields) => new Set(fields.map((f) => f.name)).size === fields.length, {
-    message: "Field names must be unique",
-  });
+  .refine(
+    (fields) => new Set(fields.map((f) => f.name)).size === fields.length,
+    {
+      message: "Field names must be unique",
+    },
+  );
 
 export type ExtractionFieldConfig = z.infer<typeof extractionFieldSchema>;

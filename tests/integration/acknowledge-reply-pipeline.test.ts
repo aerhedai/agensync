@@ -53,13 +53,17 @@ describe("acknowledge_reply pipeline", () => {
         organisationId,
         name: "Case Inquiry Agent",
         description: "Handles new case inquiries.",
-        instructions: "Acknowledge the inquiry and note a lawyer will follow up.",
+        instructions:
+          "Acknowledge the inquiry and note a lawyer will follow up.",
         model: "test-model",
         status: "ACTIVE",
         executionMode: "HARNESS",
         pipelineKey: "acknowledge_reply",
         extractionFields: [
-          { name: "caseType", description: "what kind of legal matter this is" },
+          {
+            name: "caseType",
+            description: "what kind of legal matter this is",
+          },
         ],
         guardrailKeywords: ["guarantee", "certain to win"],
       },
@@ -182,9 +186,7 @@ describe("acknowledge_reply pipeline", () => {
   });
 
   it("fails cleanly with no email available from any source", async () => {
-    const provider = scriptedProvider([
-      { content: '{"customerEmail": null}' },
-    ]);
+    const provider = scriptedProvider([{ content: '{"customerEmail": null}' }]);
 
     const result = await runHarnessPipeline(
       noGuardrailAgent,

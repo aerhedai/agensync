@@ -101,8 +101,7 @@ export default async function WorkflowDetailPage({
         <CardContent>
           {unattachedAgents.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Every agent in your organisation is already part of this
-              workflow.{" "}
+              Every agent in your organisation is already part of this workflow.{" "}
               <Link href="/agents/new" className="text-primary hover:underline">
                 Create a new one
               </Link>{" "}
@@ -114,7 +113,10 @@ export default async function WorkflowDetailPage({
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
             >
               <div className="flex flex-1 flex-col gap-1">
-                <label htmlFor="agentId" className="text-xs text-muted-foreground">
+                <label
+                  htmlFor="agentId"
+                  className="text-xs text-muted-foreground"
+                >
                   Agent
                 </label>
                 <select
@@ -148,9 +150,9 @@ export default async function WorkflowDetailPage({
             </form>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
-            A workflow has one classifier and any number of handlers — adding
-            a second classifier replaces routing for this workflow rather
-            than running two in parallel.
+            A workflow has one classifier and any number of handlers — adding a
+            second classifier replaces routing for this workflow rather than
+            running two in parallel.
           </p>
         </CardContent>
       </Card>

@@ -53,7 +53,9 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
   ];
   for (const field of configuredFields) {
     schemaShape[field.name] = z.string().nullable();
-    promptFieldLines.push(`"${field.name}": string or null (${field.description})`);
+    promptFieldLines.push(
+      `"${field.name}": string or null (${field.description})`,
+    );
   }
   const fieldsSchema = z.object(schemaShape);
 

@@ -23,7 +23,11 @@ const { dispatchInboundMessage } = await import("@/lib/routing/dispatch");
 const { createProduct } = await import("@/lib/products/product-repository");
 const { createCustomer } = await import("@/lib/customers/customer-repository");
 const { env } = await import("@/lib/env");
-import type { AIProvider, GenerateRequest, AIResponse } from "@/lib/ai/provider";
+import type {
+  AIProvider,
+  GenerateRequest,
+  AIResponse,
+} from "@/lib/ai/provider";
 
 const TEST_ORG_ID = "cmtg8vtln0000mws73t1av4ov"; // "Agensync Test Org A"
 const TEST_MODEL = "qwen3.5:4b";
@@ -58,7 +62,9 @@ interface TestEmail {
 }
 
 async function main() {
-  console.log(`Seeding catalog into ${TEST_ORG_ID} and switching its agents to ${TEST_MODEL}...`);
+  console.log(
+    `Seeding catalog into ${TEST_ORG_ID} and switching its agents to ${TEST_MODEL}...`,
+  );
 
   const existingProduct = await prisma.product.findFirst({
     where: { organisationId: TEST_ORG_ID, sku: "WIDGET-500" },
@@ -146,7 +152,10 @@ async function main() {
     const ms = Date.now() - start;
     const calls = tracking.drain();
     const promptTokens = calls.reduce((sum, c) => sum + c.promptTokens, 0);
-    const completionTokens = calls.reduce((sum, c) => sum + c.completionTokens, 0);
+    const completionTokens = calls.reduce(
+      (sum, c) => sum + c.completionTokens,
+      0,
+    );
     results.push({
       category: email.category,
       matched: dispatchResult.matched,
@@ -189,16 +198,27 @@ async function main() {
   console.log(
     `  avg prompt: ${(overall.promptTokens / results.length).toFixed(0)}, avg completion: ${(overall.completionTokens / results.length).toFixed(0)}`,
   );
-  console.log(`Average latency/email: ${(overall.ms / results.length).toFixed(0)}ms`);
-  console.log(`Min total tokens: ${Math.min(...results.map((r) => r.totalTokens))}`);
-  console.log(`Max total tokens: ${Math.max(...results.map((r) => r.totalTokens))}`);
+  console.log(
+    `Average latency/email: ${(overall.ms / results.length).toFixed(0)}ms`,
+  );
+  console.log(
+    `Min total tokens: ${Math.min(...results.map((r) => r.totalTokens))}`,
+  );
+  console.log(
+    `Max total tokens: ${Math.max(...results.map((r) => r.totalTokens))}`,
+  );
 
   console.log("\nRestoring original agent models...");
   for (const agent of priorModels) {
-    await prisma.agent.update({ where: { id: agent.id }, data: { model: agent.model } });
+    await prisma.agent.update({
+      where: { id: agent.id },
+      data: { model: agent.model },
+    });
   }
 
-  console.log("\nDone. Seeded test product/customer left in place for future re-runs.");
+  console.log(
+    "\nDone. Seeded test product/customer left in place for future re-runs.",
+  );
   await prisma.$disconnect();
 }
 

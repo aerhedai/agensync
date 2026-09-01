@@ -31,7 +31,7 @@ const CATEGORY_TYPE_OPTIONS: {
     value: "acknowledge_reply",
     label: "Acknowledge & Reply",
     description:
-      "Extract whatever facts you define from the message, optionally look up the customer, write an appropriate reply, apply your own guardrail — no code needed. Use this for most new categories (case inquiries, maintenance requests, general questions, complaints, anything that's fundamentally \"read it and respond\").",
+      'Extract whatever facts you define from the message, optionally look up the customer, write an appropriate reply, apply your own guardrail — no code needed. Use this for most new categories (case inquiries, maintenance requests, general questions, complaints, anything that\'s fundamentally "read it and respond").',
   },
   {
     value: "quote",
@@ -177,8 +177,8 @@ export function AgentForm({
           <Label>Fields to extract</Label>
           <p className="text-xs text-muted-foreground">
             What to pull out of the message, beyond the customer&rsquo;s email
-            (always extracted automatically). Each becomes a fact available
-            when writing the reply.
+            (always extracted automatically). Each becomes a fact available when
+            writing the reply.
           </p>
           <div className="flex flex-col gap-3 rounded-md border border-border p-3">
             {extractionFields.length === 0 && (
@@ -209,9 +209,7 @@ export function AgentForm({
                   onChange={(e) =>
                     setExtractionFields((fields) =>
                       fields.map((f, i) =>
-                        i === index
-                          ? { ...f, description: e.target.value }
-                          : f,
+                        i === index ? { ...f, description: e.target.value } : f,
                       ),
                     )
                   }
@@ -264,8 +262,8 @@ export function AgentForm({
             placeholder="e.g. refund, compensation, discount"
           />
           <p className="text-xs text-muted-foreground">
-            Comma-separated. If the composed reply contains any of these
-            words or phrases, it&rsquo;s refused outright — never proposed for
+            Comma-separated. If the composed reply contains any of these words
+            or phrases, it&rsquo;s refused outright — never proposed for
             approval, no exceptions. Leave blank for no guardrail.
           </p>
         </div>

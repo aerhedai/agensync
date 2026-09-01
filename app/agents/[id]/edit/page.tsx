@@ -25,7 +25,9 @@ export default async function EditAgentPage({
         agent={{
           ...agent,
           toolNames: agent.tools.map((t) => t.toolName),
-          extractionFields: extractionFieldsSchema.parse(agent.extractionFields),
+          extractionFields: extractionFieldsSchema.parse(
+            agent.extractionFields,
+          ),
         }}
         submitLabel="Save changes"
       />

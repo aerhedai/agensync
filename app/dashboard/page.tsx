@@ -20,20 +20,29 @@ export default async function DashboardPage({
     inbox_error: inboxError,
   } = await searchParams;
   const organisation = await getCurrentOrganisation();
-  const [counts, gmailIntegration] = await Promise.all([
+  const [counts, gmailIntegration, totalTokens] = await Promise.all([
     dashboardService.getDashboardCounts(organisation.id),
     integrationService.getGmailIntegration(organisation.id),
+    dashboardService.getTotalTokenUsage(organisation.id),
   ]);
 
-  const stats: { label: string; value: number; href?: string }[] = [
-    { label: "Agents", value: counts.agents, href: "/workflows" },
-    { label: "Active runs", value: counts.running },
-    { label: "Completed runs", value: counts.completed },
-    { label: "Failed runs", value: counts.failed },
+  const stats: { label: string; value: string; href?: string }[] = [
+    { label: "Agents", value: String(counts.agents), href: "/workflows" },
+    { label: "Active runs", value: String(counts.running) },
+    { label: "Completed runs", value: String(counts.completed) },
+    { label: "Failed runs", value: String(counts.failed) },
     {
       label: "Pending approvals",
-      value: counts.waitingForApproval,
+      value: String(counts.waitingForApproval),
       href: "/approvals",
+    },
+    {
+      // Deliberately just a total here, not a breakdown — the per-run
+      // detail (which agent, which category, prompt vs. completion) lives
+      // at /runs, not on the dashboard.
+      label: "Tokens used",
+      value: totalTokens.toLocaleString(),
+      href: "/runs",
     },
   ];
 
@@ -49,7 +58,7 @@ export default async function DashboardPage({
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {stats.map((stat) => {
           const card = (
             <Card

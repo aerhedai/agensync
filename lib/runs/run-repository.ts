@@ -101,3 +101,58 @@ export function findRunsByAgentIds(
     include: { agent: { select: { name: true } } },
   });
 }
+
+// Org-wide, every agent — the data behind /runs, the "highly detailed"
+// counterpart to the dashboard's single summary number. Paginated rather
+// than a fixed take like the other list functions here: this is the one
+// place meant to show *all* runs, not a recent-N preview on another
+// page, so it has to scale past however many runs an org accumulates.
+export function findRunsByOrganisation(
+  organisationId: string,
+  { skip, take }: { skip: number; take: number },
+) {
+  return prisma.agentRun.findMany({
+    where: { organisationId },
+    orderBy: { createdAt: "desc" },
+    skip,
+    take,
+    include: { agent: { select: { name: true } } },
+  });
+}
+
+export function countRunsByOrganisation(organisationId: string) {
+  return prisma.agentRun.count({ where: { organisationId } });
+}
+
+// Per-run token totals for a page of runs — a groupBy aggregate, not
+// fetching every RunStep's full content just to sum two columns.
+export async function sumTokensByRunIds(runIds: string[]) {
+  const rows = await prisma.runStep.groupBy({
+    by: ["agentRunId"],
+    where: { agentRunId: { in: runIds } },
+    _sum: { promptTokens: true, completionTokens: true },
+  });
+  return new Map(
+    rows.map((row) => [
+      row.agentRunId,
+      {
+        promptTokens: row._sum.promptTokens ?? 0,
+        completionTokens: row._sum.completionTokens ?? 0,
+      },
+    ]),
+  );
+}
+
+// The dashboard's one summary number — total tokens across every run this
+// organisation has ever had, computed as a single DB aggregate rather
+// than summed in application code over however many runs exist.
+export async function sumAllTokensForOrganisation(organisationId: string) {
+  const result = await prisma.runStep.aggregate({
+    where: { agentRun: { organisationId } },
+    _sum: { promptTokens: true, completionTokens: true },
+  });
+  return {
+    promptTokens: result._sum.promptTokens ?? 0,
+    completionTokens: result._sum.completionTokens ?? 0,
+  };
+}

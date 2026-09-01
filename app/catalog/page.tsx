@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Card, CardContent } from "@/components/ui/card";
 import * as customerRepository from "@/lib/customers/customer-repository";
+import * as entityTypeService from "@/lib/entities/entity-type-service";
 import * as productRepository from "@/lib/products/product-repository";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
@@ -9,9 +10,10 @@ export const dynamic = "force-dynamic";
 
 export default async function CatalogPage() {
   const organisation = await getCurrentOrganisation();
-  const [products, customers] = await Promise.all([
+  const [products, customers, entityTypes] = await Promise.all([
     productRepository.findProductsByOrganisation(organisation.id),
     customerRepository.findCustomersByOrganisation(organisation.id),
+    entityTypeService.listEntityTypes(organisation.id),
   ]);
 
   return (
@@ -36,6 +38,17 @@ export default async function CatalogPage() {
               <span className="text-sm text-muted-foreground">
                 {customers.length} customer{customers.length === 1 ? "" : "s"} —
                 what find_customer looks up.
+              </span>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/catalog/entities">
+          <Card className="transition-colors hover:border-primary/40">
+            <CardContent className="flex flex-col gap-1 py-4">
+              <span className="font-medium">Custom entities</span>
+              <span className="text-sm text-muted-foreground">
+                {entityTypes.length} type{entityTypes.length === 1 ? "" : "s"} —
+                your own data (Property, Case, ...) a category can look up.
               </span>
             </CardContent>
           </Card>

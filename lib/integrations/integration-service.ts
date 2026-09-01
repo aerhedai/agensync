@@ -1,12 +1,94 @@
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 import { refreshAccessToken } from "@/lib/integrations/gmail/oauth";
+import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
 
 // Refresh a little before actual expiry so a token never goes stale
 // mid-request.
 const EXPIRY_SAFETY_MARGIN_MS = 60_000;
+const GMAIL_PROVIDER = "gmail";
 
-export function getGmailIntegration(organisationId: string) {
-  return integrationRepository.findGmailIntegration(organisationId);
+interface GmailCredentials {
+  accessToken: string;
+  refreshToken: string;
+}
+
+function asGmailCredentials(
+  credentials: Record<string, unknown> | null,
+): GmailCredentials {
+  if (
+    !credentials ||
+    typeof credentials.accessToken !== "string" ||
+    typeof credentials.refreshToken !== "string"
+  ) {
+    throw new Error(
+      "Gmail integration is missing valid credentials — reconnect it from Settings.",
+    );
+  }
+  return {
+    accessToken: credentials.accessToken,
+    refreshToken: credentials.refreshToken,
+  };
+}
+
+// Every connected account, across every provider — the data behind the
+// Settings "boxes" UI (lib/integrations/integration-registry.ts groups
+// these by provider for display).
+export function listIntegrations(organisationId: string) {
+  return integrationRepository.findIntegrationsByOrganisation(organisationId);
+}
+
+export function listIntegrationsByProvider(
+  organisationId: string,
+  provider: string,
+) {
+  return integrationRepository.findIntegrationsByProvider(
+    organisationId,
+    provider,
+  );
+}
+
+export function disconnectIntegration(
+  organisationId: string,
+  integrationId: string,
+) {
+  return integrationRepository.deleteIntegration(organisationId, integrationId);
+}
+
+export function connectGmailAccount(
+  organisationId: string,
+  email: string,
+  tokens: GmailTokens,
+) {
+  return integrationRepository.upsertIntegration(
+    organisationId,
+    GMAIL_PROVIDER,
+    email,
+    {
+      config: { email },
+      credentials: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      },
+      expiresAt: tokens.expiresAt,
+    },
+  );
+}
+
+/**
+ * "Default" = earliest-connected Gmail account for this organisation.
+ * There's no concept yet of a workflow picking a specific account — every
+ * org-wide Gmail action (the dashboard's "Check inbox" button, the
+ * send_email tool) uses whichever account was connected first. Correct by
+ * construction for the common case (one account), a real known limitation
+ * once a business connects two and expects both to be used — flagged
+ * here deliberately rather than silently papered over.
+ */
+export async function getDefaultGmailIntegration(organisationId: string) {
+  const integrations = await integrationRepository.findIntegrationsByProvider(
+    organisationId,
+    GMAIL_PROVIDER,
+  );
+  return integrations[0] ?? null;
 }
 
 /**
@@ -17,29 +99,29 @@ export function getGmailIntegration(organisationId: string) {
 export async function getValidGmailAccessToken(
   organisationId: string,
 ): Promise<string> {
-  const integration =
-    await integrationRepository.findGmailIntegration(organisationId);
+  const integration = await getDefaultGmailIntegration(organisationId);
   if (!integration) {
     throw new Error(
       "Gmail is not connected for this organisation. Connect it from Settings.",
     );
   }
+  const credentials = asGmailCredentials(integration.credentials);
 
   const expiresSoon =
+    !integration.expiresAt ||
     integration.expiresAt.getTime() - Date.now() < EXPIRY_SAFETY_MARGIN_MS;
   if (!expiresSoon) {
-    return integration.accessToken;
+    return credentials.accessToken;
   }
 
-  const refreshed = await refreshAccessToken(integration.refreshToken);
-  await integrationRepository.updateGmailAccessToken(
-    organisationId,
-    refreshed.accessToken,
+  const refreshed = await refreshAccessToken(credentials.refreshToken);
+  await integrationRepository.updateIntegrationCredentials(
+    integration.id,
+    {
+      accessToken: refreshed.accessToken,
+      refreshToken: credentials.refreshToken,
+    },
     refreshed.expiresAt,
   );
   return refreshed.accessToken;
-}
-
-export function disconnectGmail(organisationId: string) {
-  return integrationRepository.deleteGmailIntegration(organisationId);
 }

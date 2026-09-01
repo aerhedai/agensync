@@ -12,7 +12,7 @@ import {
   extractEmailDeterministically,
 } from "@/lib/harness/pipeline-helpers";
 import { failPipeline } from "@/lib/harness/pipeline-failure";
-import { proposeSendEmail } from "@/lib/harness/propose-send-email";
+import { proposeAction } from "@/lib/harness/propose-action";
 import type { Pipeline } from "@/lib/harness/types";
 
 const fieldsSchema = z.object({
@@ -124,9 +124,12 @@ export const runQuotePipeline: Pipeline = async (context) => {
       .join("\n"),
   );
 
-  return proposeSendEmail(context, {
-    to: email,
-    subject: `Quote for ${fields.quantity} x ${product.name}`,
-    body,
+  return proposeAction(context, {
+    toolName: context.agent.actionTool,
+    args: {
+      to: email,
+      subject: `Quote for ${fields.quantity} x ${product.name}`,
+      body,
+    },
   });
 };

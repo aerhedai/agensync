@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { addWorkflowMemberAction } from "@/app/workflows/[id]/actions";
+import {
+  activateWorkflowAction,
+  addWorkflowMemberAction,
+  deactivateWorkflowAction,
+} from "@/app/workflows/[id]/actions";
 import { AgentStatusBadge } from "@/components/agents/agent-status-badge";
 import { RunStatusBadge } from "@/components/runs/run-status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +21,10 @@ export const dynamic = "force-dynamic";
 
 export default async function WorkflowDetailPage({
   params,
+  searchParams,
 }: PageProps<"/workflows/[id]">) {
   const { id } = await params;
+  const { activation_error: activationError } = await searchParams;
   const organisation = await getCurrentOrganisation();
   const workflow = await workflowService.getWorkflow(organisation.id, id);
 
@@ -41,15 +47,72 @@ export default async function WorkflowDetailPage({
   const allAgents = await agentService.listAgents(organisation.id);
   const unattachedAgents = allAgents.filter((a) => !memberAgentIds.has(a.id));
 
+  const otherActiveWorkflow =
+    workflow.status !== "ACTIVE"
+      ? await workflowService.findActiveWorkflowForTrigger(
+          organisation.id,
+          workflow.trigger,
+        )
+      : null;
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      {typeof activationError === "string" && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          {activationError}
+        </p>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">{workflow.name}</h1>
           <AgentStatusBadge status={workflow.status} />
         </div>
-        <Badge variant="outline">{workflow.trigger}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={workflow.source === "TEMPLATE" ? "secondary" : "outline"}
+          >
+            {workflow.source === "TEMPLATE" ? "Template" : "Custom"}
+          </Badge>
+          <Badge variant="outline">{workflow.trigger}</Badge>
+        </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Status
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {workflow.status === "ACTIVE" ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Live — this is the workflow real{" "}
+                {workflow.trigger.toLowerCase()} traffic for this organisation
+                is routed through.
+              </p>
+              <form action={deactivateWorkflowAction.bind(null, workflow.id)}>
+                <Button type="submit" variant="outline">
+                  Deactivate
+                </Button>
+              </form>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Draft — not reachable by real {workflow.trigger.toLowerCase()}{" "}
+                traffic yet.
+                {otherActiveWorkflow &&
+                  ` Activating this will deactivate "${otherActiveWorkflow.name}", which currently holds this trigger — only one workflow per trigger can be active at a time.`}
+              </p>
+              <form action={activateWorkflowAction.bind(null, workflow.id)}>
+                <Button type="submit">Activate</Button>
+              </form>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

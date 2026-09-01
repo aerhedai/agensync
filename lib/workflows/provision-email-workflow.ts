@@ -205,6 +205,8 @@ export async function provisionEmailWorkflow(
         "Classifies inbound customer emails and routes them to the right specialist agent.",
       trigger: "EMAIL",
       status: "ACTIVE",
+      source: "TEMPLATE",
+      templateKey: "email_handling",
     },
   });
 

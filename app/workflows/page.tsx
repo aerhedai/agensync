@@ -17,12 +17,20 @@ export default async function WorkflowsPage() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Workflows</h1>
-        <Link
-          href="/agents"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          All agents →
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/workflows/new"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Create workflow
+          </Link>
+          <Link
+            href="/agents"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            All agents →
+          </Link>
+        </div>
       </div>
 
       {workflows.length === 0 ? (
@@ -53,6 +61,15 @@ export default async function WorkflowsPage() {
                       </CardTitle>
                     </Link>
                     <div className="flex items-center gap-2">
+                      <Badge
+                        variant={
+                          workflow.source === "TEMPLATE"
+                            ? "secondary"
+                            : "outline"
+                        }
+                      >
+                        {workflow.source === "TEMPLATE" ? "Template" : "Custom"}
+                      </Badge>
                       <Badge variant="outline">{workflow.trigger}</Badge>
                       <AgentStatusBadge status={workflow.status} />
                     </div>

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { disconnectIntegrationAction } from "@/app/settings/actions";
 import { Button } from "@/components/ui/button";
+import { WebhookAccountForm } from "@/components/settings/webhook-account-form";
 import { GMAIL_INBOX_LABEL } from "@/lib/integrations/gmail/client";
 import { INTEGRATION_REGISTRY } from "@/lib/integrations/integration-registry";
 
@@ -18,7 +19,13 @@ export interface DisplayAccount {
 // a second MCP action tool just to prove the pluggable-action-tool
 // abstraction earlier — add the real second case (a webhook's own connect
 // flow) when it exists, not a shape guessed at now.
-function AddAccountButton({ provider }: { provider: string }) {
+function AddAccountButton({
+  provider,
+  baseUrl,
+}: {
+  provider: string;
+  baseUrl: string;
+}) {
   if (provider === "gmail") {
     return (
       <Button
@@ -28,6 +35,9 @@ function AddAccountButton({ provider }: { provider: string }) {
         Add Gmail account
       </Button>
     );
+  }
+  if (provider === "webhook") {
+    return <WebhookAccountForm baseUrl={baseUrl} />;
   }
   return null;
 }
@@ -70,11 +80,13 @@ function ProviderBox({
   label,
   description,
   accounts,
+  baseUrl,
 }: {
   provider: string;
   label: string;
   description: string;
   accounts: DisplayAccount[];
+  baseUrl: string;
 }) {
   const [expanded, setExpanded] = useState(accounts.length === 0);
 
@@ -124,7 +136,7 @@ function ProviderBox({
           <ProviderSetupNotes provider={provider} />
 
           <div>
-            <AddAccountButton provider={provider} />
+            <AddAccountButton provider={provider} baseUrl={baseUrl} />
           </div>
         </div>
       )}
@@ -136,10 +148,12 @@ export function IntegrationsSection({
   accountsByProvider,
   gmailConnected,
   gmailError,
+  baseUrl,
 }: {
   accountsByProvider: Record<string, DisplayAccount[]>;
   gmailConnected?: boolean;
   gmailError?: string;
+  baseUrl: string;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -157,6 +171,7 @@ export function IntegrationsSection({
           label={entry.label}
           description={entry.description}
           accounts={accountsByProvider[entry.provider] ?? []}
+          baseUrl={baseUrl}
         />
       ))}
     </div>

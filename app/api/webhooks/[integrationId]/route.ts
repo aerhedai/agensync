@@ -1,0 +1,93 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { getAIProvider } from "@/lib/ai/get-provider";
+import * as integrationService from "@/lib/integrations/integration-service";
+import { dispatchInboundMessage } from "@/lib/routing/dispatch";
+
+// CLAUDE.md #19 — never trust a webhook payload without validation. The
+// caller (whatever external system is configured to POST here) controls
+// this shape; it's documented in the "Add webhook account" confirmation
+// UI, not inferred or guessed at.
+const webhookPayloadSchema = z.object({
+  body: z.string().min(1),
+  subject: z.string().optional(),
+  senderEmail: z.email().optional(),
+});
+
+/**
+ * The one inbound entry point for the webhook trigger — no session, no
+ * Clerk auth, reachable by anything on the internet that knows the URL.
+ * The bearer secret (verifyWebhookSecret, constant-time compared) is the
+ * entire authentication boundary, same trust model as Stripe/GitHub-style
+ * webhook secrets. integrationId in the URL identifies which business
+ * this belongs to; the org is only ever resolved *after* the secret
+ * checks out, never trusted from the URL alone.
+ */
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ integrationId: string }> },
+) {
+  const { integrationId } = await params;
+
+  const authHeader = request.headers.get("authorization") ?? "";
+  const [scheme, secret] = authHeader.split(" ");
+  if (scheme !== "Bearer" || !secret) {
+    return NextResponse.json(
+      { error: "Missing bearer secret." },
+      { status: 401 },
+    );
+  }
+
+  const verified = await integrationService.verifyWebhookSecret(
+    integrationId,
+    secret,
+  );
+  if (!verified) {
+    return NextResponse.json(
+      { error: "Invalid webhook credentials." },
+      { status: 401 },
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Body must be valid JSON." },
+      { status: 400 },
+    );
+  }
+
+  const parsed = webhookPayloadSchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: "Invalid payload.",
+        details: parsed.error.flatten().fieldErrors,
+      },
+      { status: 400 },
+    );
+  }
+  const { body, subject, senderEmail } = parsed.data;
+
+  const input = subject ? `Subject: ${subject}\n\n${body}` : body;
+
+  const result = await dispatchInboundMessage(
+    verified.organisationId,
+    "WEBHOOK",
+    input,
+    getAIProvider(),
+    senderEmail ?? null,
+  );
+
+  if (!result.matched) {
+    return NextResponse.json({ matched: false, reason: result.reason });
+  }
+  return NextResponse.json({
+    matched: true,
+    agentName: result.agentName,
+    status: result.run.status,
+  });
+}

@@ -3,13 +3,6 @@ import type { WorkflowAgentRole } from "@/lib/generated/prisma/client";
 import type { WorkflowInput } from "@/lib/workflows/schemas";
 import * as workflowRepository from "@/lib/workflows/workflow-repository";
 
-export function findActiveEmailWorkflow(organisationId: string) {
-  return workflowRepository.findActiveWorkflowByTrigger(
-    organisationId,
-    "EMAIL",
-  );
-}
-
 // Used by the workflow detail page to warn before activating: "this will
 // deactivate <name>" is a much clearer moment to learn about the
 // one-active-workflow-per-trigger rule than discovering it after the fact.

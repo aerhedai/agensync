@@ -31,3 +31,25 @@ export async function addWorkflowMemberAction(
   );
   redirect(`/workflows/${workflowId}`);
 }
+
+export async function activateWorkflowAction(workflowId: string) {
+  const organisation = await getCurrentOrganisation();
+  try {
+    await workflowService.activateWorkflow(organisation.id, workflowId);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not activate this workflow.";
+    redirect(
+      `/workflows/${workflowId}?activation_error=${encodeURIComponent(message)}`,
+    );
+  }
+  redirect(`/workflows/${workflowId}`);
+}
+
+export async function deactivateWorkflowAction(workflowId: string) {
+  const organisation = await getCurrentOrganisation();
+  await workflowService.deactivateWorkflow(organisation.id, workflowId);
+  redirect(`/workflows/${workflowId}`);
+}

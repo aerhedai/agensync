@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getGmailProfile } from "@/lib/integrations/gmail/client";
 import { exchangeCodeForTokens } from "@/lib/integrations/gmail/oauth";
-import * as integrationRepository from "@/lib/integrations/integration-repository";
+import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
 const STATE_COOKIE = "gmail_oauth_state";
@@ -33,7 +33,10 @@ export async function GET(request: Request) {
   const profile = await getGmailProfile(tokens.accessToken);
   const organisation = await getCurrentOrganisation();
 
-  await integrationRepository.upsertGmailIntegration(
+  // Upserts on (organisationId, "gmail", email) — reconnecting the same
+  // address updates that account's tokens; authorizing a different Gmail
+  // address adds a new connected account rather than replacing this one.
+  await integrationService.connectGmailAccount(
     organisation.id,
     profile.emailAddress,
     tokens,

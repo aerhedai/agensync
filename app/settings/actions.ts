@@ -7,9 +7,12 @@ import { getCurrentOrganisation } from "@/lib/organisations/current-organisation
 import * as organisationService from "@/lib/organisations/organisation-service";
 import { organisationInputSchema } from "@/lib/organisations/schemas";
 
-export async function disconnectGmailAction() {
+export async function disconnectIntegrationAction(integrationId: string) {
   const organisation = await getCurrentOrganisation();
-  await integrationService.disconnectGmail(organisation.id);
+  await integrationService.disconnectIntegration(
+    organisation.id,
+    integrationId,
+  );
   revalidatePath("/settings");
 }
 

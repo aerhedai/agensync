@@ -27,6 +27,27 @@ export const INTEGRATION_REGISTRY = [
     connectionMode: "oauth",
   },
   {
+    provider: "outlook",
+    label: "Outlook",
+    description:
+      "Connect an Outlook/Microsoft 365 account to trigger agents from folder-routed inbound email, and to send replies — the Outlook alternative to Gmail.",
+    connectionMode: "oauth",
+  },
+  {
+    provider: "teams",
+    label: "Teams",
+    description:
+      "Connect a Microsoft Teams account so agents can post internal notifications to a channel.",
+    connectionMode: "oauth",
+  },
+  {
+    provider: "outlook-calendar",
+    label: "Outlook Calendar",
+    description:
+      "Connect an Outlook Calendar so agents can check availability and book meetings.",
+    connectionMode: "oauth",
+  },
+  {
     provider: "webhook",
     label: "Webhook",
     description:

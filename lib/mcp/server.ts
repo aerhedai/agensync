@@ -2,10 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import * as integrationService from "@/lib/integrations/integration-service";
 import { createCalculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
+import { createCheckCalendarAvailabilityTool } from "@/lib/mcp/tools/check-calendar-availability";
 import { createCheckInventoryTool } from "@/lib/mcp/tools/check-inventory";
+import { createCreateCalendarEventTool } from "@/lib/mcp/tools/create-calendar-event";
 import { createFindCustomerTool } from "@/lib/mcp/tools/find-customer";
 import { createFindProductTool } from "@/lib/mcp/tools/find-product";
 import { createNotifySlackTool } from "@/lib/mcp/tools/notify-slack";
+import { createNotifyTeamsTool } from "@/lib/mcp/tools/notify-teams";
 import { createSearchCustomEntityTool } from "@/lib/mcp/tools/search-custom-entity";
 import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
 
@@ -31,9 +34,10 @@ const readOnly = { readOnlyHint: true };
  * provider (e.g. a Gmail address) — forwarding it unconditionally into
  * every action tool's constructor would make notify_slack hard-error
  * ("not a Slack account") for an agent pinned to Gmail, or vice versa.
- * Resolved once here and only forwarded into the tool whose own provider
- * matches; otherwise undefined, so that tool falls back to its own
- * provider's organisation default instead of failing.
+ * Resolved once here and only forwarded into the tool(s) whose own
+ * provider matches; otherwise undefined, so that tool falls back to its
+ * own provider's organisation default instead of failing. send_email is
+ * provider-agnostic across Gmail/Outlook, so it matches either.
  */
 export async function createMcpServer(
   organisationId: string,
@@ -49,10 +53,19 @@ export async function createMcpServer(
         )
       )?.provider ?? null)
     : null;
-  const gmailActionIntegrationId =
-    actionIntegrationProvider === "gmail" ? actionIntegrationId : undefined;
+  const emailActionIntegrationId =
+    actionIntegrationProvider === "gmail" ||
+    actionIntegrationProvider === "outlook"
+      ? actionIntegrationId
+      : undefined;
   const slackActionIntegrationId =
     actionIntegrationProvider === "slack" ? actionIntegrationId : undefined;
+  const teamsActionIntegrationId =
+    actionIntegrationProvider === "teams" ? actionIntegrationId : undefined;
+  const calendarActionIntegrationId =
+    actionIntegrationProvider === "outlook-calendar"
+      ? actionIntegrationId
+      : undefined;
 
   const findCustomerTool = createFindCustomerTool(organisationId);
   server.registerTool(
@@ -116,7 +129,7 @@ export async function createMcpServer(
 
   const sendEmailTool = createSendEmailTool(
     organisationId,
-    gmailActionIntegrationId,
+    emailActionIntegrationId,
   );
   server.registerTool(
     sendEmailTool.name,
@@ -140,6 +153,49 @@ export async function createMcpServer(
       outputSchema: notifySlackTool.outputSchema,
     },
     notifySlackTool.handler,
+  );
+
+  const notifyTeamsTool = createNotifyTeamsTool(
+    organisationId,
+    teamsActionIntegrationId,
+  );
+  server.registerTool(
+    notifyTeamsTool.name,
+    {
+      description: notifyTeamsTool.description,
+      inputSchema: notifyTeamsTool.inputSchema,
+      outputSchema: notifyTeamsTool.outputSchema,
+    },
+    notifyTeamsTool.handler,
+  );
+
+  const checkCalendarAvailabilityTool = createCheckCalendarAvailabilityTool(
+    organisationId,
+    calendarActionIntegrationId,
+  );
+  server.registerTool(
+    checkCalendarAvailabilityTool.name,
+    {
+      description: checkCalendarAvailabilityTool.description,
+      inputSchema: checkCalendarAvailabilityTool.inputSchema,
+      outputSchema: checkCalendarAvailabilityTool.outputSchema,
+      annotations: readOnly,
+    },
+    checkCalendarAvailabilityTool.handler,
+  );
+
+  const createCalendarEventTool = createCreateCalendarEventTool(
+    organisationId,
+    calendarActionIntegrationId,
+  );
+  server.registerTool(
+    createCalendarEventTool.name,
+    {
+      description: createCalendarEventTool.description,
+      inputSchema: createCalendarEventTool.inputSchema,
+      outputSchema: createCalendarEventTool.outputSchema,
+    },
+    createCalendarEventTool.handler,
   );
 
   return server;

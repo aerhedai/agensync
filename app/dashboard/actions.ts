@@ -9,16 +9,68 @@ import {
   markGmailMessageRead,
 } from "@/lib/integrations/gmail/client";
 import * as integrationService from "@/lib/integrations/integration-service";
+import {
+  getOutlookMessage,
+  listUnreadOutlookMessages,
+  markOutlookMessageRead,
+} from "@/lib/integrations/outlook/client";
 import { extractEmailDeterministically } from "@/lib/harness/pipeline-helpers";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import { dispatchInboundMessage } from "@/lib/routing/dispatch";
 
+interface EmailMessageSummary {
+  id: string;
+}
+
+interface EmailMessage {
+  id: string;
+  from: string;
+  subject: string;
+  body: string;
+}
+
+// Small, file-local adapter map — exists purely to avoid branching in the
+// loop below over exactly 2 real cases (Gmail, Outlook), not a new shared
+// abstraction layer. Both providers' client functions already share this
+// exact shape.
+const EMAIL_PROVIDER_ADAPTERS: Record<
+  "gmail" | "outlook",
+  {
+    listUnread: (accessToken: string) => Promise<EmailMessageSummary[]>;
+    getMessage: (accessToken: string, id: string) => Promise<EmailMessage>;
+    markRead: (accessToken: string, id: string) => Promise<void>;
+    getAccessToken: (
+      organisationId: string,
+      integrationId: string,
+    ) => Promise<string>;
+  }
+> = {
+  gmail: {
+    listUnread: listUnreadInboxMessages,
+    getMessage: getGmailMessage,
+    markRead: markGmailMessageRead,
+    getAccessToken: integrationService.getValidGmailAccessToken,
+  },
+  outlook: {
+    listUnread: listUnreadOutlookMessages,
+    getMessage: getOutlookMessage,
+    markRead: markOutlookMessageRead,
+    getAccessToken: integrationService.getValidOutlookAccessToken,
+  },
+};
+
 /**
  * On-demand inbox check (no background worker/polling infra per CLAUDE.md
  * #30 — this is a manual trigger the user clicks, not a cron job).
- * Organisation-scoped, not agent-scoped: each unread labelled email is
- * classified and routed to whichever active agent fits (see
+ * Organisation-scoped, not agent-scoped: each unread labelled/foldered
+ * email is classified and routed to whichever active agent fits (see
  * lib/routing/dispatch.ts), not tied to any one agent's page.
+ *
+ * Provider-agnostic across Gmail and Outlook Mail — checks one default
+ * account per connected provider (0–2 accounts), not every account ever
+ * connected. This exactly preserves the original Gmail-only behavior when
+ * only Gmail is connected, and only does more work once Outlook is also
+ * connected.
  */
 export async function checkInboxAction() {
   const organisation = await getCurrentOrganisation();
@@ -26,58 +78,60 @@ export async function checkInboxAction() {
   let processed = 0;
   let skipped = 0;
   try {
-    const integration = await integrationService.getDefaultGmailIntegration(
+    const integrations = await integrationService.getConnectedEmailIntegrations(
       organisation.id,
     );
-    if (!integration) {
+    if (integrations.length === 0) {
       throw new Error(
-        "Gmail is not connected for this organisation. Connect it from Settings.",
+        "No email account (Gmail or Outlook) is connected for this organisation. Connect one from Settings.",
       );
     }
-    const accessToken = await integrationService.getValidGmailAccessToken(
-      organisation.id,
-      integration.id,
-    );
-    const unread = await listUnreadInboxMessages(accessToken);
 
-    for (const summary of unread) {
-      const message = await getGmailMessage(accessToken, summary.id);
-      // Subject + body only — never the sender's address. Classification
-      // (both the keyword fast path and the LLM classifier) matches
-      // directly over this text, and a customer's own email address can
-      // accidentally contain a keyword substring (e.g. "...price@..."
-      // silently routing everything to the Quote Agent, found live). The
-      // sender is passed separately below, used only for identification.
-      const input = `New email received.\nSubject: ${message.subject}\n\n${cleanEmailBody(message.body)}`;
-      // Gmail's "From" header is "Display Name <address@example.com>", not
-      // a bare address — pull just the address out before using it for
-      // identification (find_customer / reply-to).
-      const senderEmail = extractEmailDeterministically(message.from);
-      const result = await dispatchInboundMessage(
+    for (const integration of integrations) {
+      const provider = integration.provider as "gmail" | "outlook";
+      const adapter = EMAIL_PROVIDER_ADAPTERS[provider];
+      const accessToken = await adapter.getAccessToken(
         organisation.id,
-        "EMAIL",
-        input,
-        undefined,
-        senderEmail,
         integration.id,
       );
+      const unread = await adapter.listUnread(accessToken);
 
-      if (result.matched) {
-        await markGmailMessageRead(accessToken, summary.id);
-        processed += 1;
-      } else if (result.reason === "no_workflow") {
-        // Not a per-email skip — nothing is configured to handle email at
-        // all, so stop immediately rather than repeating the same failure
-        // for every remaining message.
-        throw new Error(
-          "No active email workflow is configured for this organisation.",
+      for (const summary of unread) {
+        const message = await adapter.getMessage(accessToken, summary.id);
+        // Subject + body only — never the sender's address. Classification
+        // (both the keyword fast path and the LLM classifier) matches
+        // directly over this text, and a customer's own email address can
+        // accidentally contain a keyword substring (e.g. "...price@..."
+        // silently routing everything to the Quote Agent, found live). The
+        // sender is passed separately below, used only for identification.
+        const input = `New email received.\nSubject: ${message.subject}\n\n${cleanEmailBody(message.body)}`;
+        const senderEmail = extractEmailDeterministically(message.from);
+        const result = await dispatchInboundMessage(
+          organisation.id,
+          "EMAIL",
+          input,
+          undefined,
+          senderEmail,
+          integration.id,
         );
-      } else {
-        // Left unprocessed on purpose: no agent's scope clearly fit, so
-        // nothing runs and nothing gets marked read — it stays visible in
-        // Gmail for a human to notice, rather than being silently dropped
-        // or guessed at.
-        skipped += 1;
+
+        if (result.matched) {
+          await adapter.markRead(accessToken, summary.id);
+          processed += 1;
+        } else if (result.reason === "no_workflow") {
+          // Not a per-email skip — nothing is configured to handle email at
+          // all, so stop immediately rather than repeating the same failure
+          // for every remaining message.
+          throw new Error(
+            "No active email workflow is configured for this organisation.",
+          );
+        } else {
+          // Left unprocessed on purpose: no agent's scope clearly fit, so
+          // nothing runs and nothing gets marked read — it stays visible in
+          // the inbox for a human to notice, rather than being silently
+          // dropped or guessed at.
+          skipped += 1;
+        }
       }
     }
   } catch (error) {

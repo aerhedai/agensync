@@ -324,7 +324,7 @@ describe("agent runtime", () => {
       where: { agentRunId: paused.runId, toolName: "send_email" },
     });
     expect(sentToolCall).toMatchObject({ status: "FAILED" });
-    expect(sentToolCall?.error).toMatch(/gmail is not connected/i);
+    expect(sentToolCall?.error).toMatch(/no email account.*is connected/i);
 
     const approval = await prisma.approval.findFirst({
       where: { agentRunId: paused.runId },

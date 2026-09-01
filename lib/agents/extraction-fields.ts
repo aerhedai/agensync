@@ -7,6 +7,13 @@ import { z } from "zod";
 // extractFields' schemas already work for every existing pipeline — see
 // quote/complaints/general-pipeline.ts's fieldsSchema), so there's no
 // separate "type" concept to validate or coerce.
+//
+// lookupEntityType is optional: when set, the pipeline uses this field's
+// extracted value to search that custom entity type (search_custom_entity)
+// and folds the found record into the reply's facts — a flat, independent
+// lookup, not a dependent chain (see acknowledge-reply-pipeline.ts and
+// lib/entities/). A field with no lookupEntityType behaves exactly as
+// before — just a fact pulled out of the message, nothing looked up.
 export const extractionFieldSchema = z.object({
   name: z
     .string()
@@ -18,6 +25,7 @@ export const extractionFieldSchema = z.object({
       "Must start with a letter and contain only letters, numbers, and underscores",
     ),
   description: z.string().trim().min(1).max(500),
+  lookupEntityType: z.string().trim().min(1).optional(),
 });
 
 // "customerEmail" is always extracted automatically by the pipeline (see

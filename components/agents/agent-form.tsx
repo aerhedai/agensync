@@ -73,6 +73,7 @@ export function AgentForm({
   action,
   agent,
   submitLabel,
+  entityTypeNames = [],
 }: {
   action: (
     prevState: AgentFormState,
@@ -80,6 +81,11 @@ export function AgentForm({
   ) => Promise<AgentFormState>;
   agent?: AgentFormValues;
   submitLabel: string;
+  // The organisation's own custom entity types (lib/entities/) — an
+  // extraction field can optionally be configured to look one up. Empty
+  // by default rather than required so this component doesn't break for
+  // any caller that hasn't been updated to fetch and pass them.
+  entityTypeNames?: string[];
 }) {
   const [state, formAction] = useActionState<AgentFormState, FormData>(
     action,
@@ -178,7 +184,9 @@ export function AgentForm({
           <p className="text-xs text-muted-foreground">
             What to pull out of the message, beyond the customer&rsquo;s email
             (always extracted automatically). Each becomes a fact available when
-            writing the reply.
+            writing the reply — optionally, use the extracted value to look up a
+            record in one of your custom entity types (needs the &ldquo;Search
+            custom entity&rdquo; tool granted below).
           </p>
           <div className="flex flex-col gap-3 rounded-md border border-border p-3">
             {extractionFields.length === 0 && (
@@ -215,6 +223,30 @@ export function AgentForm({
                   }
                   className="flex-1"
                 />
+                <select
+                  name="extractionFieldLookupEntityType"
+                  value={field.lookupEntityType ?? ""}
+                  onChange={(e) =>
+                    setExtractionFields((fields) =>
+                      fields.map((f, i) =>
+                        i === index
+                          ? {
+                              ...f,
+                              lookupEntityType: e.target.value || undefined,
+                            }
+                          : f,
+                      ),
+                    )
+                  }
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-sm sm:w-40"
+                >
+                  <option value="">Don&rsquo;t look up</option>
+                  {entityTypeNames.map((name) => (
+                    <option key={name} value={name}>
+                      Look up in {name}
+                    </option>
+                  ))}
+                </select>
                 <Button
                   type="button"
                   variant="outline"

@@ -27,14 +27,16 @@ import type { Pipeline } from "@/lib/harness/types";
  * guardrailKeywords — data a business configures per category — instead
  * of a separate TypeScript file per category.
  *
- * Deliberately NOT a general tool-chaining engine: this does at most one
- * optional lookup (find_customer), never a dependent chain where one
- * tool's output feeds another's input the way Quote's find_product ->
- * check_inventory -> calculate_quote does. A category that genuinely needs
- * that kind of multi-step lookup still needs its own coded pipeline
- * (CLAUDE.md #24/#30 — no generic workflow-node engine yet); this covers
- * the "read it, understand it, respond appropriately" shape that most
- * business email categories actually are.
+ * Deliberately NOT a general tool-chaining engine: every lookup here
+ * (find_customer, plus one search_custom_entity call per extraction field
+ * configured with a lookupEntityType) is independent and flat — keyed off
+ * a value already in hand, never off another lookup's result the way
+ * Quote's find_product -> check_inventory -> calculate_quote is a real
+ * dependent chain. A category that genuinely needs that kind of
+ * multi-step lookup still needs its own coded pipeline (CLAUDE.md
+ * #24/#30 — no generic workflow-node engine yet); this covers the "read
+ * it, understand it, respond appropriately" shape that most business
+ * email categories actually are.
  */
 export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
   const configuredFields = extractionFieldsSchema.parse(
@@ -93,6 +95,38 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
     })
     .filter((line): line is string => line !== null);
 
+  // Independent, flat lookups — one per extracted field that's configured
+  // to look something up, each keyed off that field's own value alone.
+  // Deliberately not chained (this field's lookup never feeds another
+  // field's lookup) — see this file's own top-of-file comment on why.
+  const entityFacts: string[] = [];
+  if (context.allowedTools.has("search_custom_entity")) {
+    for (const field of configuredFields) {
+      if (!field.lookupEntityType) continue;
+      const value = fields?.[field.name];
+      if (!value) continue;
+
+      const result = await callTool(context, "search_custom_entity", {
+        entityType: field.lookupEntityType,
+        query: value,
+      });
+      if (result.isError || !result.structuredContent?.found) continue;
+
+      const records = result.structuredContent.records as {
+        data: Record<string, unknown>;
+      }[];
+      const record = records[0];
+      if (!record) continue;
+
+      const recordFacts = Object.entries(record.data)
+        .map(([key, val]) => `${key}: ${val}`)
+        .join(", ");
+      entityFacts.push(
+        `${field.lookupEntityType} record found: ${recordFacts}`,
+      );
+    }
+  }
+
   const body = await composeReply(
     context,
     withBusinessGuidance(
@@ -104,6 +138,7 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
         ? `Customer: ${customerName}`
         : 'Customer name: unknown — do not invent or placeholder one, open with "Hello,"',
       ...extractedFacts,
+      ...entityFacts,
     ].join("\n"),
   );
 

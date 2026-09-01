@@ -31,6 +31,12 @@ export const TOOL_REGISTRY = [
     label: "Send email",
     description: "Send an email reply via Gmail — always requires approval.",
   },
+  {
+    name: "search_custom_entity",
+    label: "Search custom entity",
+    description:
+      "Look up a record in one of this business's own custom entity types (e.g. Property, Case).",
+  },
 ] as const;
 
 export type ToolName = (typeof TOOL_REGISTRY)[number]["name"];

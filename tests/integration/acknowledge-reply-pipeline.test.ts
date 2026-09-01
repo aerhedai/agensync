@@ -26,6 +26,7 @@ describe("acknowledge_reply pipeline", () => {
   const organisationId = "test-org-acknowledge-reply";
   let caseAgent: Agent; // a business-defined category unlike anything hardcoded before
   let noGuardrailAgent: Agent;
+  let propertyAgent: Agent;
 
   beforeAll(async () => {
     await prisma.organisation.create({
@@ -95,6 +96,55 @@ describe("acknowledge_reply pipeline", () => {
         toolName,
       })),
     });
+
+    const propertyType = await prisma.customEntityType.create({
+      data: {
+        organisationId,
+        name: "Property",
+        fields: [
+          { name: "address", description: "the property address" },
+          { name: "tenant", description: "the current tenant's name" },
+        ],
+      },
+    });
+    await prisma.customEntityRecord.create({
+      data: {
+        organisationId,
+        entityTypeId: propertyType.id,
+        data: { address: "14 Birch Road", tenant: "Jordan Reyes" },
+      },
+    });
+
+    // A maintenance-shaped category: extracts propertyAddress and is
+    // configured to look it up in the Property entity type — proves the
+    // lookup wiring end to end, not just that extraction/compose work.
+    propertyAgent = await prisma.agent.create({
+      data: {
+        organisationId,
+        name: "Maintenance Request Agent",
+        description: "Handles maintenance requests.",
+        instructions:
+          "Acknowledge the issue and note a technician will follow up.",
+        model: "test-model",
+        status: "ACTIVE",
+        executionMode: "HARNESS",
+        pipelineKey: "acknowledge_reply",
+        extractionFields: [
+          {
+            name: "propertyAddress",
+            description: "the property address if mentioned",
+            lookupEntityType: "Property",
+          },
+        ],
+        guardrailKeywords: [],
+      },
+    });
+    await prisma.agentTool.createMany({
+      data: ["search_custom_entity", "send_email"].map((toolName) => ({
+        agentId: propertyAgent.id,
+        toolName,
+      })),
+    });
   });
 
   afterAll(async () => {
@@ -108,10 +158,14 @@ describe("acknowledge_reply pipeline", () => {
     await prisma.runStep.deleteMany({ where: { agentRunId: { in: runIds } } });
     await prisma.agentRun.deleteMany({ where: { organisationId } });
     await prisma.agentTool.deleteMany({
-      where: { agentId: { in: [caseAgent.id, noGuardrailAgent.id] } },
+      where: {
+        agentId: { in: [caseAgent.id, noGuardrailAgent.id, propertyAgent.id] },
+      },
     });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.customer.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({ where: { organisationId } });
+    await prisma.customEntityType.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -195,5 +249,56 @@ describe("acknowledge_reply pipeline", () => {
     );
 
     expect(result.status).toBe("FAILED");
+  });
+
+  it("looks up a custom entity by an extracted field's value and folds the found record into the run — a flat lookup, not a chain", async () => {
+    const provider = scriptedProvider([
+      {
+        content: '{"customerEmail": null, "propertyAddress": "14 Birch Road"}',
+      },
+      { content: "Thanks for reporting this — a technician will follow up." },
+    ]);
+
+    const result = await runHarnessPipeline(
+      propertyAgent,
+      "There's a leak at 14 Birch Road",
+      provider,
+      "jordan@case-customer.test",
+    );
+
+    expect(result.status).toBe("WAITING_FOR_APPROVAL");
+
+    const lookup = await prisma.toolCall.findFirst({
+      where: { agentRunId: result.runId, toolName: "search_custom_entity" },
+    });
+    expect(lookup?.input).toMatchObject({
+      entityType: "Property",
+      query: "14 Birch Road",
+    });
+    expect(lookup?.output).toMatchObject({
+      found: true,
+      records: [{ data: { tenant: "Jordan Reyes" } }],
+    });
+  });
+
+  it("skips the entity lookup entirely when the extracted value is null — never calls the tool for nothing to search", async () => {
+    const provider = scriptedProvider([
+      { content: '{"customerEmail": null, "propertyAddress": null}' },
+      { content: "Thanks — a technician will follow up shortly." },
+    ]);
+
+    const result = await runHarnessPipeline(
+      propertyAgent,
+      "Something's broken but I didn't say where",
+      provider,
+      "jordan@case-customer.test",
+    );
+
+    expect(result.status).toBe("WAITING_FOR_APPROVAL");
+
+    const lookup = await prisma.toolCall.findFirst({
+      where: { agentRunId: result.runId, toolName: "search_custom_entity" },
+    });
+    expect(lookup).toBeNull();
   });
 });

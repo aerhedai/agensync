@@ -64,6 +64,7 @@ type AgentFormValues = Pick<
   | "executionMode"
   | "pipelineKey"
   | "guardrailKeywords"
+  | "actionIntegrationId"
 > & {
   toolNames?: string[];
   extractionFields?: ExtractionFieldConfig[];
@@ -74,6 +75,7 @@ export function AgentForm({
   agent,
   submitLabel,
   entityTypeNames = [],
+  gmailIntegrations = [],
 }: {
   action: (
     prevState: AgentFormState,
@@ -86,6 +88,10 @@ export function AgentForm({
   // by default rather than required so this component doesn't break for
   // any caller that hasn't been updated to fetch and pass them.
   entityTypeNames?: string[];
+  // The organisation's connected Gmail accounts — offered as the "action
+  // account" this agent's send_email tool uses. Empty by default for the
+  // same reason as entityTypeNames above.
+  gmailIntegrations?: { id: string; name: string }[];
 }) {
   const [state, formAction] = useActionState<AgentFormState, FormData>(
     action,
@@ -348,6 +354,34 @@ export function AgentForm({
         {state.fieldErrors?.replySubjectTemplate && (
           <p className="text-sm text-destructive">
             {state.fieldErrors.replySubjectTemplate[0]}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="actionIntegrationId">Action account</Label>
+        <select
+          id="actionIntegrationId"
+          name="actionIntegrationId"
+          defaultValue={agent?.actionIntegrationId ?? ""}
+          className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
+        >
+          <option value="">Organisation&rsquo;s default Gmail account</option>
+          {gmailIntegrations.map((integration) => (
+            <option key={integration.id} value={integration.id}>
+              {integration.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          Which connected Gmail account this agent&rsquo;s send_email tool sends
+          from. Leave as default unless this business has connected more than
+          one Gmail account and needs different categories to reply from
+          different addresses.
+        </p>
+        {state.fieldErrors?.actionIntegrationId && (
+          <p className="text-sm text-destructive">
+            {state.fieldErrors.actionIntegrationId[0]}
           </p>
         )}
       </div>

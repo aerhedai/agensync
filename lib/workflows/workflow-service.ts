@@ -1,18 +1,99 @@
 import * as agentRepository from "@/lib/agents/agent-repository";
-import type { WorkflowAgentRole } from "@/lib/generated/prisma/client";
+import type {
+  WorkflowAgentRole,
+  WorkflowTriggerType,
+} from "@/lib/generated/prisma/client";
+import * as integrationRepository from "@/lib/integrations/integration-repository";
 import type { WorkflowInput } from "@/lib/workflows/schemas";
 import * as workflowRepository from "@/lib/workflows/workflow-repository";
 
+// Which Integration.provider a trigger's bound account must be — enforced
+// here (not in the Zod schema) because it needs a DB lookup to check.
+// WEBHOOK has no generic fallback (there's no non-account-specific webhook
+// URL), so it's required; EMAIL still allows null (the org-wide default
+// Gmail account, today's only behavior for email-triggered workflows).
+const TRIGGER_INTEGRATION_PROVIDERS: Record<WorkflowTriggerType, string> = {
+  EMAIL: "gmail",
+  WEBHOOK: "webhook",
+};
+const TRIGGERS_REQUIRING_ACCOUNT: WorkflowTriggerType[] = ["WEBHOOK"];
+
+async function validateTriggerIntegration(
+  organisationId: string,
+  trigger: WorkflowTriggerType,
+  triggerIntegrationId: string | null | undefined,
+) {
+  if (!triggerIntegrationId) {
+    if (TRIGGERS_REQUIRING_ACCOUNT.includes(trigger)) {
+      throw new Error(
+        `A ${trigger} workflow must be bound to a specific connected account`,
+      );
+    }
+    return;
+  }
+
+  const integration = await integrationRepository.findIntegrationById(
+    organisationId,
+    triggerIntegrationId,
+  );
+  if (!integration) {
+    throw new Error("Connected account not found");
+  }
+  if (integration.provider !== TRIGGER_INTEGRATION_PROVIDERS[trigger]) {
+    throw new Error(
+      `A ${trigger} workflow must be bound to a ${TRIGGER_INTEGRATION_PROVIDERS[trigger]} account, not a ${integration.provider} one`,
+    );
+  }
+}
+
 // Used by the workflow detail page to warn before activating: "this will
 // deactivate <name>" is a much clearer moment to learn about the
-// one-active-workflow-per-trigger rule than discovering it after the fact.
+// one-active-workflow-per-(trigger,account) rule than discovering it after
+// the fact.
 export function findActiveWorkflowForTrigger(
   organisationId: string,
   trigger: Parameters<typeof workflowRepository.findActiveWorkflowByTrigger>[1],
+  triggerIntegrationId: string | null = null,
 ) {
   return workflowRepository.findActiveWorkflowByTrigger(
     organisationId,
     trigger,
+    triggerIntegrationId,
+  );
+}
+
+/**
+ * Dispatch-time lookup — unlike findActiveWorkflowForTrigger (an exact
+ * one-slot check used only to warn before activation), this is about
+ * routing real inbound traffic to *something* that handles it: prefers a
+ * workflow bound to the exact account the message arrived on, but falls
+ * back to the org-wide generic workflow (triggerIntegrationId: null) if
+ * none is bound to that specific account. This is what keeps a
+ * single-account organisation's existing generic EMAIL workflow working
+ * unchanged now that checkInboxAction resolves and passes its Gmail
+ * integration id through — without this fallback, every pre-existing
+ * null-bound workflow would stop matching the instant a real account id
+ * is passed. Harmless no-op for WEBHOOK: a null-bound ACTIVE WEBHOOK
+ * workflow can never exist (createWorkflow requires an account for
+ * WEBHOOK), so the fallback query there always finds nothing.
+ */
+export async function findActiveWorkflowForDispatch(
+  organisationId: string,
+  trigger: Parameters<typeof workflowRepository.findActiveWorkflowByTrigger>[1],
+  triggerIntegrationId: string | null,
+) {
+  const specific = await workflowRepository.findActiveWorkflowByTrigger(
+    organisationId,
+    trigger,
+    triggerIntegrationId,
+  );
+  if (specific || !triggerIntegrationId) {
+    return specific;
+  }
+  return workflowRepository.findActiveWorkflowByTrigger(
+    organisationId,
+    trigger,
+    null,
   );
 }
 
@@ -55,18 +136,28 @@ export async function addMember(
 // Starting in DRAFT means a business can build a workflow out (add its
 // classifier and handlers) without it ever being reachable by real
 // inbound traffic until they explicitly activate it.
-export function createWorkflow(organisationId: string, input: WorkflowInput) {
+export async function createWorkflow(
+  organisationId: string,
+  input: WorkflowInput,
+) {
+  await validateTriggerIntegration(
+    organisationId,
+    input.trigger,
+    input.triggerIntegrationId,
+  );
   return workflowRepository.createWorkflow(organisationId, input);
 }
 
 /**
- * At most one workflow per (organisationId, trigger) may be ACTIVE —
- * dispatchInboundMessage can only ever route to one, so a second ACTIVE
- * workflow on the same trigger wouldn't run in parallel, it would just be
- * silently unreachable (see the Workflow.status field comment in
- * schema.prisma). Activating this one demotes whatever else currently
- * holds that trigger to DRAFT, in the same call — an explicit swap, not
- * something the caller has to remember to do in two steps.
+ * At most one workflow per (organisationId, trigger, triggerIntegrationId)
+ * may be ACTIVE — dispatchInboundMessage can only ever route to one, so a
+ * second ACTIVE workflow on the same trigger+account wouldn't run in
+ * parallel, it would just be silently unreachable (see the Workflow.status
+ * field comment in schema.prisma). Two workflows on the same trigger but
+ * *different* bound accounts don't compete at all. Activating this one
+ * demotes whatever else currently holds this trigger+account to DRAFT, in
+ * the same call — an explicit swap, not something the caller has to
+ * remember to do in two steps.
  */
 export async function activateWorkflow(
   organisationId: string,
@@ -91,6 +182,7 @@ export async function activateWorkflow(
   await workflowRepository.deactivateOtherWorkflowsForTrigger(
     organisationId,
     workflow.trigger,
+    workflow.triggerIntegrationId,
     workflowId,
   );
   return workflowRepository.setWorkflowStatus(workflowId, "ACTIVE");

@@ -172,4 +172,53 @@ describe("multi-account integrations", () => {
       integrationService.getValidGmailAccessToken(organisationId),
     ).rejects.toThrow(/gmail is not connected/i);
   });
+
+  it("getValidGmailAccessToken can be pinned to a specific account, not just the default", async () => {
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "first@acme.test",
+      {
+        accessToken: "access-first",
+        refreshToken: "refresh-first",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    const second = await integrationService.connectGmailAccount(
+      organisationId,
+      "second@acme.test",
+      {
+        accessToken: "access-second",
+        refreshToken: "refresh-second",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    // The default (no id given) is still the earliest-connected account —
+    // pinning to the second account's id must override that, proving an
+    // agent's actionIntegrationId actually changes which credentials get
+    // used rather than being silently ignored.
+    const defaultToken =
+      await integrationService.getValidGmailAccessToken(organisationId);
+    const pinnedToken = await integrationService.getValidGmailAccessToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("access-first");
+    expect(pinnedToken).toBe("access-second");
+  });
+
+  it("getValidGmailAccessToken rejects a pinned id that isn't a Gmail account", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Gmail",
+      );
+
+    await expect(
+      integrationService.getValidGmailAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not a gmail account/i);
+  });
 });

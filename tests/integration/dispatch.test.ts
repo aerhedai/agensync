@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { AIProvider, AIResponse } from "@/lib/ai/provider";
 import { prisma } from "@/lib/db/prisma";
+import * as integrationService from "@/lib/integrations/integration-service";
 import { dispatchInboundMessage } from "@/lib/routing/dispatch";
 
 // Ollama isn't reachable from CI — classification and the handler's own
@@ -272,6 +273,193 @@ describe("dispatchInboundMessage", () => {
       });
       await prisma.workflow.deleteMany({ where: { organisationId: orgId } });
       await prisma.agent.deleteMany({ where: { organisationId: orgId } });
+      await prisma.organisation.deleteMany({ where: { id: orgId } });
+    }
+  });
+
+  it("routes two WEBHOOK-triggered workflows on different accounts independently, and falls back a null-bound workflow when passed a real account id", async () => {
+    // Self-contained org: exercises the account-specification feature
+    // (Workflow.triggerIntegrationId) end to end through the real dispatch
+    // path, not just the repository/service layer tests.
+    const orgId = "test-org-dispatch-account-binding";
+    await prisma.organisation.create({
+      data: { id: orgId, clerkOrgId: orgId, name: "Account Binding Org" },
+    });
+
+    const classifier = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Classifier",
+        description: "Routes inbound messages.",
+        instructions: "Decide which agent should handle this message.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+    const agentA = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Agent A",
+        description: "Handles account A's traffic.",
+        instructions: "Handle it.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+    const agentB = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Agent B",
+        description: "Handles account B's traffic.",
+        instructions: "Handle it.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+
+    const { integration: accountA } =
+      await integrationService.connectWebhookAccount(orgId, "Account A");
+    const { integration: accountB } =
+      await integrationService.connectWebhookAccount(orgId, "Account B");
+
+    const workflowA = await prisma.workflow.create({
+      data: {
+        organisationId: orgId,
+        name: "Workflow A",
+        description: "d",
+        trigger: "WEBHOOK",
+        triggerIntegrationId: accountA.id,
+        status: "ACTIVE",
+      },
+    });
+    const workflowB = await prisma.workflow.create({
+      data: {
+        organisationId: orgId,
+        name: "Workflow B",
+        description: "d",
+        trigger: "WEBHOOK",
+        triggerIntegrationId: accountB.id,
+        status: "ACTIVE",
+      },
+    });
+    await prisma.workflowAgent.createMany({
+      data: [
+        {
+          workflowId: workflowA.id,
+          agentId: classifier.id,
+          role: "CLASSIFIER",
+        },
+        { workflowId: workflowA.id, agentId: agentA.id, role: "HANDLER" },
+        {
+          workflowId: workflowB.id,
+          agentId: classifier.id,
+          role: "CLASSIFIER",
+        },
+        { workflowId: workflowB.id, agentId: agentB.id, role: "HANDLER" },
+      ],
+    });
+
+    // A generic (null-bound) EMAIL workflow, standing in for the pre-existing
+    // default every organisation had before account binding existed —
+    // checkInboxAction now always passes a real Gmail integration id, so
+    // dispatch must still find this via its fallback (workflow-service.ts's
+    // findActiveWorkflowForDispatch) or every organisation with only one
+    // Gmail account would silently stop routing email.
+    const emailAgent = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Email Agent",
+        description: "Handles email.",
+        instructions: "Handle it.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+    const emailWorkflow = await prisma.workflow.create({
+      data: {
+        organisationId: orgId,
+        name: "Generic Email",
+        description: "d",
+        trigger: "EMAIL",
+        triggerIntegrationId: null,
+        status: "ACTIVE",
+      },
+    });
+    await prisma.workflowAgent.createMany({
+      data: [
+        {
+          workflowId: emailWorkflow.id,
+          agentId: classifier.id,
+          role: "CLASSIFIER",
+        },
+        {
+          workflowId: emailWorkflow.id,
+          agentId: emailAgent.id,
+          role: "HANDLER",
+        },
+      ],
+    });
+    const gmailAccount = await integrationService.connectGmailAccount(
+      orgId,
+      "inbox@acme.test",
+      {
+        accessToken: "a",
+        refreshToken: "r",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    try {
+      const resultA = await dispatchInboundMessage(
+        orgId,
+        "WEBHOOK",
+        "Anything",
+        scriptedProvider([{ content: `{"agentId": "${agentA.id}"}` }]),
+        null,
+        accountA.id,
+      );
+      const resultB = await dispatchInboundMessage(
+        orgId,
+        "WEBHOOK",
+        "Anything",
+        scriptedProvider([{ content: `{"agentId": "${agentB.id}"}` }]),
+        null,
+        accountB.id,
+      );
+      const resultEmail = await dispatchInboundMessage(
+        orgId,
+        "EMAIL",
+        "Anything",
+        scriptedProvider([{ content: `{"agentId": "${emailAgent.id}"}` }]),
+        null,
+        gmailAccount.id,
+      );
+
+      expect(resultA).toMatchObject({ matched: true, agentId: agentA.id });
+      expect(resultB).toMatchObject({ matched: true, agentId: agentB.id });
+      expect(resultEmail).toMatchObject({
+        matched: true,
+        agentId: emailAgent.id,
+      });
+    } finally {
+      const runs = await prisma.agentRun.findMany({
+        where: { organisationId: orgId },
+        select: { id: true },
+      });
+      const runIds = runs.map((r) => r.id);
+      await prisma.toolCall.deleteMany({
+        where: { agentRunId: { in: runIds } },
+      });
+      await prisma.runStep.deleteMany({
+        where: { agentRunId: { in: runIds } },
+      });
+      await prisma.agentRun.deleteMany({ where: { organisationId: orgId } });
+      await prisma.workflowAgent.deleteMany({
+        where: { workflow: { organisationId: orgId } },
+      });
+      await prisma.workflow.deleteMany({ where: { organisationId: orgId } });
+      await prisma.agent.deleteMany({ where: { organisationId: orgId } });
+      await prisma.integration.deleteMany({ where: { organisationId: orgId } });
       await prisma.organisation.deleteMany({ where: { id: orgId } });
     }
   });

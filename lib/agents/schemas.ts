@@ -42,6 +42,17 @@ export const agentInputSchema = z
     // "loop"/"quote" categories.
     extractionFields: extractionFieldsSchema.default([]),
     guardrailKeywords: z.array(z.string().trim().min(1)).default([]),
+    // Which connected account actionTool uses — see
+    // Agent.actionIntegrationId's schema.prisma comment. Empty string (the
+    // "use the organisation's default account" option in the form)
+    // normalizes to null, same pattern as replySubjectTemplate above.
+    actionIntegrationId: z
+      .string()
+      .trim()
+      .max(200)
+      .transform((v) => (v.length > 0 ? v : null))
+      .nullable()
+      .default(null),
   })
   .transform(({ categoryType, ...rest }) => ({
     ...rest,

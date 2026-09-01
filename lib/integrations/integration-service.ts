@@ -50,6 +50,13 @@ export function listIntegrationsByProvider(
   );
 }
 
+export function getIntegration(organisationId: string, integrationId: string) {
+  return integrationRepository.findIntegrationById(
+    organisationId,
+    integrationId,
+  );
+}
+
 export function disconnectIntegration(
   organisationId: string,
   integrationId: string,
@@ -98,15 +105,31 @@ export async function getDefaultGmailIntegration(organisationId: string) {
  * Returns a Gmail access token guaranteed valid for immediate use,
  * refreshing and persisting a new one first if the stored token is expired
  * or about to expire. Throws if Gmail isn't connected for this org.
+ *
+ * integrationId, when provided (an agent's actionIntegrationId), pins this
+ * to that *specific* connected Gmail account instead of the org's default
+ * — looked up via findIntegrationById, so it's still organisation-scoped
+ * even though the id itself came from the agent record, not this call's
+ * own arguments. Falls back to getDefaultGmailIntegration when omitted,
+ * same behavior as before this parameter existed.
  */
 export async function getValidGmailAccessToken(
   organisationId: string,
+  integrationId?: string | null,
 ): Promise<string> {
-  const integration = await getDefaultGmailIntegration(organisationId);
+  const integration = integrationId
+    ? await integrationRepository.findIntegrationById(
+        organisationId,
+        integrationId,
+      )
+    : await getDefaultGmailIntegration(organisationId);
   if (!integration) {
     throw new Error(
       "Gmail is not connected for this organisation. Connect it from Settings.",
     );
+  }
+  if (integration.provider !== GMAIL_PROVIDER) {
+    throw new Error("The bound action account is not a Gmail account.");
   }
   const credentials = asGmailCredentials(integration.credentials);
 

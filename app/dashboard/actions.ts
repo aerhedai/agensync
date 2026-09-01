@@ -26,8 +26,17 @@ export async function checkInboxAction() {
   let processed = 0;
   let skipped = 0;
   try {
+    const integration = await integrationService.getDefaultGmailIntegration(
+      organisation.id,
+    );
+    if (!integration) {
+      throw new Error(
+        "Gmail is not connected for this organisation. Connect it from Settings.",
+      );
+    }
     const accessToken = await integrationService.getValidGmailAccessToken(
       organisation.id,
+      integration.id,
     );
     const unread = await listUnreadInboxMessages(accessToken);
 
@@ -50,6 +59,7 @@ export async function checkInboxAction() {
         input,
         undefined,
         senderEmail,
+        integration.id,
       );
 
       if (result.matched) {

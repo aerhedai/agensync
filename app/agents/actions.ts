@@ -55,6 +55,7 @@ function parseAgentForm(formData: FormData) {
     toolNames: formData.getAll("toolNames"),
     extractionFields,
     guardrailKeywords: parseCommaSeparated(formData, "guardrailKeywords"),
+    actionIntegrationId: formData.get("actionIntegrationId"),
   });
 }
 

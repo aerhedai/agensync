@@ -193,6 +193,24 @@ model Agent {
   // the pipeline's default" — existing agents with no template set keep
   // behaving exactly as before this field existed.
   replySubjectTemplate String?
+  // "acknowledge_reply"-pipeline-only: business-defined fields to pull out
+  // of the message, e.g. [{"name":"caseNumber","description":"the case
+  // number if mentioned"}]. A fixed "customerEmail" field is always
+  // extracted in addition to these regardless of what's configured here —
+  // see acknowledge-reply-pipeline.ts — so a business never has to think
+  // about identity extraction, only what's specific to their category.
+  // Json, not a related table: this is a small, agent-owned list with no
+  // independent lifecycle of its own, same reasoning as messages on
+  // AgentRun.
+  extractionFields Json @default("[]")
+  // "acknowledge_reply"-pipeline-only: a composed reply is refused (run
+  // FAILED, never proposed for approval) if it contains any of these
+  // words/phrases, case-insensitive substring match — see
+  // pipeline-guards.ts. Generalizes what was a single hardcoded
+  // compensation-promise regex on the old Complaints pipeline into a
+  // guardrail any business-defined category can configure for itself.
+  // Empty means no guardrail is applied.
+  guardrailKeywords String[] @default([])
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
   runs                AgentRun[]

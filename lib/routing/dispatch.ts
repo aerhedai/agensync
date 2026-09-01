@@ -1,5 +1,6 @@
 import type { AIProvider } from "@/lib/ai/provider";
 import { getAIProvider } from "@/lib/ai/get-provider";
+import type { WorkflowTriggerType } from "@/lib/generated/prisma/client";
 import { classifyIntent } from "@/lib/routing/classify-intent";
 import { deterministicClassify } from "@/lib/routing/deterministic-classify";
 import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
@@ -28,18 +29,26 @@ export type DispatchResult =
  * instead, used only for identification (find_customer / reply-to) by the
  * harness pipelines — it never influences what a message is classified as
  * or what gets extracted from it.
+ *
+ * triggerIntegrationId narrows the workflow lookup to one bound to that
+ * specific connected account (see Workflow.triggerIntegrationId's
+ * schema.prisma comment) — null (the default) matches the generic
+ * org-wide workflow for this trigger type, today's only behavior for
+ * triggers with no natural per-account binding (e.g. EMAIL).
  */
 export async function dispatchInboundMessage(
   organisationId: string,
-  trigger: "EMAIL",
+  trigger: WorkflowTriggerType,
   input: string,
   provider: AIProvider = getAIProvider(),
   senderEmail: string | null = null,
+  triggerIntegrationId: string | null = null,
 ): Promise<DispatchResult> {
-  const workflow =
-    trigger === "EMAIL"
-      ? await workflowService.findActiveEmailWorkflow(organisationId)
-      : null;
+  const workflow = await workflowService.findActiveWorkflowForDispatch(
+    organisationId,
+    trigger,
+    triggerIntegrationId,
+  );
   if (!workflow) {
     return { matched: false, reason: "no_workflow" };
   }

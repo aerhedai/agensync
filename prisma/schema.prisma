@@ -51,8 +51,15 @@ enum ApprovalStatus {
   REJECTED
 }
 
+// Stays a real Postgres enum, unlike Integration.provider — a new trigger
+// type always needs real new application code (a new inbound endpoint, a
+// new payload-normalization step) regardless of whether this is an enum
+// or a string, so there's no "avoid a migration for every new plugin"
+// argument here the way there was for provider/pipelineKey/actionTool.
+// Small, code-defined, closed set — same category as AgentExecutionMode.
 enum WorkflowTriggerType {
   EMAIL
+  WEBHOOK
 }
 
 enum WorkflowAgentRole {
@@ -277,13 +284,24 @@ model Agent {
   // not a rewrite of it — same reasoning as the AIProvider abstraction
   // existing before a second AI provider did.
   actionTool           String             @default("send_email")
+  // Which connected account actionTool uses — e.g. which of the org's
+  // Gmail accounts this category sends from. Null means "the provider's
+  // default account" (lib/integrations/integration-service.ts's
+  // getDefaultGmailIntegration — whichever was connected first), the
+  // same fallback every agent used before this field existed. Not
+  // required to be set even once a business has multiple accounts of a
+  // provider; it only matters the moment two categories need to use
+  // *different* accounts of the same provider.
+  actionIntegrationId  String?
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
+  actionIntegration   Integration?    @relation(fields: [actionIntegrationId], references: [id])
   runs                AgentRun[]
   tools               AgentTool[]
   workflowMemberships WorkflowAgent[]
 
   @@index([organisationId])
+  @@index([actionIntegrationId])
 }
 
 // Which MCP tools this agent may use (CLAUDE.md #9 step 3: "check the
@@ -310,19 +328,22 @@ model AgentTool {
 // separate entity so a business can eventually have more than one workflow
 // (e.g. a future quote-to-production pipeline) without a schema rewrite.
 model Workflow {
-  id             String              @id @default(cuid())
-  organisationId String
-  name           String
-  description    String
-  trigger        WorkflowTriggerType
+  id                   String              @id @default(cuid())
+  organisationId       String
+  name                 String
+  description          String
+  trigger              WorkflowTriggerType
   // DRAFT: being built, never dispatched to. ACTIVE: live — at most one
-  // workflow per (organisationId, trigger) may be ACTIVE at a time,
-  // enforced in workflow-service.ts's activateWorkflow, not the database —
-  // dispatchInboundMessage's findActiveWorkflowByTrigger uses findFirst,
-  // so two ACTIVE workflows on the same trigger would mean one silently,
-  // non-deterministically never receives real traffic. ARCHIVED: retired.
-  status         AgentStatus         @default(DRAFT)
-  source         WorkflowSource      @default(CUSTOM)
+  // workflow per (organisationId, trigger, triggerIntegrationId) may be
+  // ACTIVE at a time, enforced in workflow-service.ts's activateWorkflow,
+  // not the database — dispatchInboundMessage's workflow lookup uses
+  // findFirst, so two ACTIVE workflows on the same (trigger, account)
+  // would mean one silently, non-deterministically never receives real
+  // traffic. Two workflows on the *same trigger* but *different* bound
+  // accounts don't compete at all — each account's traffic is its own.
+  // ARCHIVED: retired.
+  status               AgentStatus         @default(DRAFT)
+  source               WorkflowSource      @default(CUSTOM)
   // TEMPLATE-only: which starter template this came from (currently just
   // "email_handling" — see provision-email-workflow.ts). Not a foreign
   // key, same reasoning as Agent.pipelineKey: identifies which piece of
@@ -330,14 +351,26 @@ model Workflow {
   // CUSTOM workflows. A real template *registry* (more than one starter
   // to choose from) is later work — this field exists now so adding one
   // is additive, not a schema change.
-  templateKey    String?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  templateKey          String?
+  // Which specific connected account this workflow listens on — e.g.
+  // exactly which webhook URL/secret, or which of several Gmail accounts.
+  // Null means "the generic one for this trigger type" (today's only
+  // behavior, still the default): a webhook-triggered workflow with no
+  // binding is unreachable (there's no generic webhook URL, only
+  // per-account ones — /api/webhooks/[integrationId] always identifies a
+  // specific account), so this is effectively required for WEBHOOK in
+  // practice, optional for EMAIL where a generic org-wide fallback still
+  // makes sense.
+  triggerIntegrationId String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
-  organisation Organisation    @relation(fields: [organisationId], references: [id])
-  members      WorkflowAgent[]
+  organisation       Organisation    @relation(fields: [organisationId], references: [id])
+  triggerIntegration Integration?    @relation(fields: [triggerIntegrationId], references: [id])
+  members            WorkflowAgent[]
 
   @@index([organisationId])
+  @@index([triggerIntegrationId])
 }
 
 model WorkflowAgent {
@@ -456,7 +489,7 @@ model Approval {
 // and Organisation.currency: a Postgres enum would need a migration for
 // every new provider, forever.
 model Integration {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organisationId String
   provider       String
   // Human-identifiable label for this specific account — the connected
@@ -470,7 +503,7 @@ model Integration {
   // UI label without every reader needing to know it's also meaningful
   // data for Gmail specifically). Plaintext — nothing sensitive belongs
   // here, see `credentials` for that.
-  config         Json     @default("{}")
+  config         Json      @default("{}")
   // One encrypted blob (see lib/crypto/token-cipher.ts), not per-field
   // columns — holds whatever secret shape a given provider needs as
   // serialized JSON before encryption (Gmail: {accessToken, refreshToken}).
@@ -483,10 +516,12 @@ model Integration {
   // Gmail peculiarity, so keeping it queryable/typed here lets that logic
   // stay provider-agnostic. Null for providers with no expiry concept.
   expiresAt      DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id])
+  organisation       Organisation @relation(fields: [organisationId], references: [id])
+  triggeredWorkflows Workflow[]
+  actionForAgents    Agent[]
 
   @@unique([organisationId, provider, name])
   @@index([organisationId])

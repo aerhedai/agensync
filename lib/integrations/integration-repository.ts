@@ -58,6 +58,20 @@ export async function findIntegrationById(organisationId: string, id: string) {
 }
 
 /**
+ * Deliberately NOT organisationId-scoped — used only by the inbound
+ * webhook endpoint (app/api/webhooks/[integrationId]/route.ts), which by
+ * definition doesn't know the organisation until it's found this row.
+ * Safe because the id itself is an unguessable cuid (not enumerable) and
+ * the caller must still verify the request's secret against this row's
+ * credentials before trusting anything — this lookup alone grants
+ * nothing. Every other caller in the app should use findIntegrationById.
+ */
+export async function findIntegrationByIdUnscoped(id: string) {
+  const integration = await prisma.integration.findUnique({ where: { id } });
+  return integration ? decryptIntegration(integration) : null;
+}
+
+/**
  * Keyed on the (organisationId, provider, name) unique constraint —
  * reconnecting the same account (e.g. re-authorizing the same Gmail
  * address) updates its row; a different name is a genuinely new account.

@@ -172,4 +172,132 @@ describe("multi-account integrations", () => {
       integrationService.getValidGmailAccessToken(organisationId),
     ).rejects.toThrow(/gmail is not connected/i);
   });
+
+  it("getValidGmailAccessToken can be pinned to a specific account, not just the default", async () => {
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "first@acme.test",
+      {
+        accessToken: "access-first",
+        refreshToken: "refresh-first",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    const second = await integrationService.connectGmailAccount(
+      organisationId,
+      "second@acme.test",
+      {
+        accessToken: "access-second",
+        refreshToken: "refresh-second",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    // The default (no id given) is still the earliest-connected account —
+    // pinning to the second account's id must override that, proving an
+    // agent's actionIntegrationId actually changes which credentials get
+    // used rather than being silently ignored.
+    const defaultToken =
+      await integrationService.getValidGmailAccessToken(organisationId);
+    const pinnedToken = await integrationService.getValidGmailAccessToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("access-first");
+    expect(pinnedToken).toBe("access-second");
+  });
+
+  it("getValidGmailAccessToken rejects a pinned id that isn't a Gmail account", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Gmail",
+      );
+
+    await expect(
+      integrationService.getValidGmailAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not a gmail account/i);
+  });
+
+  function connectSlackWorkspace(teamId: string, teamName: string) {
+    return integrationService.connectOAuthAccount(organisationId, "slack", {
+      accountName: teamName,
+      config: { teamId, teamName },
+      credentials: { botToken: `xoxb-${teamId}`, botUserId: `U-${teamId}` },
+      expiresAt: null,
+    });
+  }
+
+  it("connecting two different Slack workspaces creates two separate accounts", async () => {
+    await connectSlackWorkspace("T1", "First Workspace");
+    await connectSlackWorkspace("T2", "Second Workspace");
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "slack",
+    );
+    expect(accounts.map((a) => a.name).sort()).toEqual([
+      "First Workspace",
+      "Second Workspace",
+    ]);
+  });
+
+  it("reconnecting the same Slack workspace updates that account rather than duplicating it", async () => {
+    await connectSlackWorkspace("T1", "Acme Workspace");
+    await connectSlackWorkspace("T1", "Acme Workspace");
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "slack",
+    );
+    expect(accounts).toHaveLength(1);
+  });
+
+  it("getSlackBotToken can be pinned to a specific workspace, not just the default", async () => {
+    await connectSlackWorkspace("T1", "First Workspace");
+    const second = await connectSlackWorkspace("T2", "Second Workspace");
+
+    const defaultToken =
+      await integrationService.getSlackBotToken(organisationId);
+    const pinnedToken = await integrationService.getSlackBotToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("xoxb-T1");
+    expect(pinnedToken).toBe("xoxb-T2");
+  });
+
+  it("getSlackBotToken rejects a pinned id that isn't a Slack account", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Slack",
+      );
+
+    await expect(
+      integrationService.getSlackBotToken(organisationId, webhookAccount.id),
+    ).rejects.toThrow(/not a slack account/i);
+  });
+
+  it("throws a clear error when no Slack workspace is connected", async () => {
+    await expect(
+      integrationService.getSlackBotToken(organisationId),
+    ).rejects.toThrow(/slack is not connected/i);
+  });
+
+  it("Slack credentials round-trip through encryption correctly — never stored as plaintext", async () => {
+    await connectSlackWorkspace("T1", "Secret Workspace");
+
+    const raw = await prisma.integration.findFirstOrThrow({
+      where: { organisationId, provider: "slack" },
+    });
+    expect(raw.credentials).not.toContain("xoxb-T1");
+    expect(raw.credentials).toMatch(/^v1:/);
+
+    const token = await integrationService.getSlackBotToken(organisationId);
+    expect(token).toBe("xoxb-T1");
+  });
 });

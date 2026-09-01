@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { disconnectIntegrationAction } from "@/app/settings/actions";
 import { Button } from "@/components/ui/button";
+import { WebhookAccountForm } from "@/components/settings/webhook-account-form";
 import { GMAIL_INBOX_LABEL } from "@/lib/integrations/gmail/client";
 import { INTEGRATION_REGISTRY } from "@/lib/integrations/integration-registry";
 
@@ -12,22 +13,35 @@ export interface DisplayAccount {
   name: string;
 }
 
-// Per-provider "how do I add an account" — a real per-provider dispatch
-// table (an adapter interface, a plugin registry) isn't worth building
-// for exactly one provider. This is the same restraint as not inventing
-// a second MCP action tool just to prove the pluggable-action-tool
-// abstraction earlier — add the real second case (a webhook's own connect
-// flow) when it exists, not a shape guessed at now.
-function AddAccountButton({ provider }: { provider: string }) {
-  if (provider === "gmail") {
+// Dispatches on the registry's declared connectionMode rather than a
+// per-provider if-chain — "oauth" providers all render the same generic
+// "Connect" link (the whole point of generalizing the flow: a third OAuth
+// provider needs no change here at all). "manual" only ever needs
+// WebhookAccountForm today; not abstracted further than that since there's
+// still only one real manual-entry shape to support.
+function AddAccountButton({
+  provider,
+  label,
+  connectionMode,
+  baseUrl,
+}: {
+  provider: string;
+  label: string;
+  connectionMode: "oauth" | "manual";
+  baseUrl: string;
+}) {
+  if (connectionMode === "oauth") {
     return (
       <Button
         nativeButton={false}
-        render={<a href="/api/integrations/gmail/connect" />}
+        render={<a href={`/api/integrations/${provider}/connect`} />}
       >
-        Add Gmail account
+        Add {label} account
       </Button>
     );
+  }
+  if (provider === "webhook") {
+    return <WebhookAccountForm baseUrl={baseUrl} />;
   }
   return null;
 }
@@ -69,12 +83,16 @@ function ProviderBox({
   provider,
   label,
   description,
+  connectionMode,
   accounts,
+  baseUrl,
 }: {
   provider: string;
   label: string;
   description: string;
+  connectionMode: "oauth" | "manual";
   accounts: DisplayAccount[];
+  baseUrl: string;
 }) {
   const [expanded, setExpanded] = useState(accounts.length === 0);
 
@@ -124,7 +142,12 @@ function ProviderBox({
           <ProviderSetupNotes provider={provider} />
 
           <div>
-            <AddAccountButton provider={provider} />
+            <AddAccountButton
+              provider={provider}
+              label={label}
+              connectionMode={connectionMode}
+              baseUrl={baseUrl}
+            />
           </div>
         </div>
       )}
@@ -134,21 +157,29 @@ function ProviderBox({
 
 export function IntegrationsSection({
   accountsByProvider,
-  gmailConnected,
-  gmailError,
+  connectedProvider,
+  errorMessage,
+  baseUrl,
 }: {
   accountsByProvider: Record<string, DisplayAccount[]>;
-  gmailConnected?: boolean;
-  gmailError?: string;
+  connectedProvider?: string;
+  errorMessage?: string;
+  baseUrl: string;
 }) {
+  const connectedLabel = INTEGRATION_REGISTRY.find(
+    (entry) => entry.provider === connectedProvider,
+  )?.label;
+
   return (
     <div className="flex flex-col gap-3">
-      {gmailConnected && (
+      {connectedLabel && (
         <p className="text-sm text-muted-foreground">
-          Gmail account connected.
+          {connectedLabel} account connected.
         </p>
       )}
-      {gmailError && <p className="text-sm text-destructive">{gmailError}</p>}
+      {errorMessage && (
+        <p className="text-sm text-destructive">{errorMessage}</p>
+      )}
 
       {INTEGRATION_REGISTRY.map((entry) => (
         <ProviderBox
@@ -156,7 +187,9 @@ export function IntegrationsSection({
           provider={entry.provider}
           label={entry.label}
           description={entry.description}
+          connectionMode={entry.connectionMode}
           accounts={accountsByProvider[entry.provider] ?? []}
+          baseUrl={baseUrl}
         />
       ))}
     </div>

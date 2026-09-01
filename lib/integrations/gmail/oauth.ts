@@ -1,4 +1,6 @@
 import { env } from "@/lib/env";
+import { getGmailProfile } from "@/lib/integrations/gmail/client";
+import type { OAuthAdapter } from "@/lib/integrations/oauth-adapter";
 
 // gmail.modify covers reading messages and marking them read (removing the
 // UNREAD label); sending needs its own scope on top of that.
@@ -119,3 +121,26 @@ export async function refreshAccessToken(
     expiresAt: new Date(Date.now() + data.expires_in * 1000),
   };
 }
+
+// The generic connect/callback routes (app/api/integrations/[provider]/)
+// drive Gmail through this shared interface instead of Gmail-specific route
+// code — the extra getGmailProfile call to resolve the connected email
+// address happens here, inside the adapter, so the generic callback route
+// never needs to branch on provider.
+export const gmailOAuthAdapter: OAuthAdapter = {
+  provider: "gmail",
+  buildAuthUrl: buildGoogleAuthUrl,
+  async exchangeCode(code) {
+    const tokens = await exchangeCodeForTokens(code);
+    const profile = await getGmailProfile(tokens.accessToken);
+    return {
+      accountName: profile.emailAddress,
+      config: { email: profile.emailAddress },
+      credentials: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      },
+      expiresAt: tokens.expiresAt,
+    };
+  },
+};

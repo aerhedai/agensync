@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { WorkflowFlowDiagram } from "@/components/workflows/workflow-flow-diagram";
 import * as agentService from "@/lib/agents/agent-service";
+import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import * as runService from "@/lib/runs/run-service";
 import * as workflowService from "@/lib/workflows/workflow-service";
@@ -47,11 +48,19 @@ export default async function WorkflowDetailPage({
   const allAgents = await agentService.listAgents(organisation.id);
   const unattachedAgents = allAgents.filter((a) => !memberAgentIds.has(a.id));
 
+  const triggerIntegration = workflow.triggerIntegrationId
+    ? await integrationService.getIntegration(
+        organisation.id,
+        workflow.triggerIntegrationId,
+      )
+    : null;
+
   const otherActiveWorkflow =
     workflow.status !== "ACTIVE"
       ? await workflowService.findActiveWorkflowForTrigger(
           organisation.id,
           workflow.trigger,
+          workflow.triggerIntegrationId,
         )
       : null;
 
@@ -77,6 +86,12 @@ export default async function WorkflowDetailPage({
           <Badge variant="outline">{workflow.trigger}</Badge>
         </div>
       </div>
+
+      {triggerIntegration && (
+        <p className="-mt-4 text-sm text-muted-foreground">
+          Bound to {triggerIntegration.name}
+        </p>
+      )}
 
       <Card>
         <CardHeader>

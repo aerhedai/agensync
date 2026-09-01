@@ -4,12 +4,24 @@ import type {
   WorkflowTriggerType,
 } from "@/lib/generated/prisma/client";
 
+/**
+ * triggerIntegrationId narrows to a workflow bound to that *specific*
+ * connected account (e.g. exactly which webhook URL/secret received the
+ * request) — pass null (the default) for "the generic workflow for this
+ * trigger type," today's only behavior and still correct for triggers
+ * with no natural per-account binding yet. This is a direct match, not a
+ * fallback chain: a webhook request always knows its own integrationId
+ * (it's in the URL), so there's no "specific, then fall back to generic"
+ * case to handle — if nothing is bound to this exact account, that's a
+ * real "no workflow configured for this," not a reason to guess at one.
+ */
 export function findActiveWorkflowByTrigger(
   organisationId: string,
   trigger: WorkflowTriggerType,
+  triggerIntegrationId: string | null = null,
 ) {
   return prisma.workflow.findFirst({
-    where: { organisationId, trigger, status: "ACTIVE" },
+    where: { organisationId, trigger, triggerIntegrationId, status: "ACTIVE" },
     include: {
       members: { include: { agent: true } },
     },
@@ -58,7 +70,12 @@ export function addWorkflowMember(
 
 export function createWorkflow(
   organisationId: string,
-  input: { name: string; description: string; trigger: WorkflowTriggerType },
+  input: {
+    name: string;
+    description: string;
+    trigger: WorkflowTriggerType;
+    triggerIntegrationId?: string | null;
+  },
 ) {
   return prisma.workflow.create({
     data: { ...input, organisationId, source: "CUSTOM", status: "DRAFT" },
@@ -75,20 +92,23 @@ export function setWorkflowStatus(
   });
 }
 
-// Everything else already ACTIVE on this org+trigger, demoted to DRAFT —
-// the other half of activateWorkflow's swap (workflow-service.ts). Not
-// scoped to a single previously-active row because there should only ever
-// be one, but this stays correct even if that invariant were ever
-// violated by something outside this service (a direct DB write, a bug).
+// Everything else already ACTIVE on this org+trigger+account, demoted to
+// DRAFT — the other half of activateWorkflow's swap (workflow-service.ts).
+// Scoped to triggerIntegrationId too, not just trigger: two workflows on
+// the same trigger type but *different* bound accounts (e.g. two separate
+// webhook URLs) don't compete for exclusivity at all — each account's
+// traffic is its own, so activating one must never deactivate the other.
 export function deactivateOtherWorkflowsForTrigger(
   organisationId: string,
   trigger: WorkflowTriggerType,
+  triggerIntegrationId: string | null,
   excludeWorkflowId: string,
 ) {
   return prisma.workflow.updateMany({
     where: {
       organisationId,
       trigger,
+      triggerIntegrationId,
       status: "ACTIVE",
       id: { not: excludeWorkflowId },
     },

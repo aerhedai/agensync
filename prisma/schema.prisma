@@ -51,10 +51,6 @@ enum ApprovalStatus {
   REJECTED
 }
 
-enum IntegrationProvider {
-  GMAIL
-}
-
 enum WorkflowTriggerType {
   EMAIL
 }
@@ -451,19 +447,47 @@ model Approval {
 // plaintext for V1 — server-side only, never sent to the browser, never
 // committed (CLAUDE.md #22) — see docs/production-notes.md for the
 // encryption-at-rest hardening this needs before any real deployment.
+// One connected *account*, not one row per provider — a business can
+// connect more than one Gmail address (e.g. sales@ and support@ feeding
+// different workflows), and future providers (webhook, Slack, ...) may
+// have a "many accounts" shape from day one. provider is a plain string,
+// not an enum — validated against lib/integrations/integration-registry.ts
+// at the application layer, same reasoning as Agent.pipelineKey/actionTool
+// and Organisation.currency: a Postgres enum would need a migration for
+// every new provider, forever.
 model Integration {
-  id             String              @id @default(cuid())
+  id             String   @id @default(cuid())
   organisationId String
-  provider       IntegrationProvider
-  email          String
-  accessToken    String
-  refreshToken   String
-  expiresAt      DateTime
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  provider       String
+  // Human-identifiable label for this specific account — the connected
+  // Gmail address today. Also the dedup key: reconnecting the same Gmail
+  // account updates its row rather than creating a duplicate (see the
+  // unique constraint below), while a different address becomes a
+  // genuinely new account.
+  name           String
+  // Non-secret, provider-specific metadata (e.g. Gmail's connected email —
+  // duplicated from `name` deliberately, so `name` can be treated as pure
+  // UI label without every reader needing to know it's also meaningful
+  // data for Gmail specifically). Plaintext — nothing sensitive belongs
+  // here, see `credentials` for that.
+  config         Json     @default("{}")
+  // One encrypted blob (see lib/crypto/token-cipher.ts), not per-field
+  // columns — holds whatever secret shape a given provider needs as
+  // serialized JSON before encryption (Gmail: {accessToken, refreshToken}).
+  // Nullable: not every future provider needs stored credentials (e.g. an
+  // inbound-only webhook might not).
+  credentials    String?
+  // OAuth-style expiry, kept as a real column rather than buried in
+  // `config` — refresh-before-expiry is a recurring pattern across OAuth
+  // providers (Gmail today, plausibly Slack/Xero/HubSpot later), not a
+  // Gmail peculiarity, so keeping it queryable/typed here lets that logic
+  // stay provider-agnostic. Null for providers with no expiry concept.
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id])
 
-  @@unique([organisationId, provider])
+  @@unique([organisationId, provider, name])
   @@index([organisationId])
 }

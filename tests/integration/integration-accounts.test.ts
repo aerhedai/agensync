@@ -1,0 +1,175 @@
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+
+import { prisma } from "@/lib/db/prisma";
+import * as integrationService from "@/lib/integrations/integration-service";
+
+describe("multi-account integrations", () => {
+  const organisationId = "test-org-integration-accounts";
+
+  beforeEach(async () => {
+    await prisma.integration.deleteMany({ where: { organisationId } });
+    await prisma.organisation.deleteMany({ where: { id: organisationId } });
+    await prisma.organisation.create({
+      data: {
+        id: organisationId,
+        clerkOrgId: organisationId,
+        name: "Integration Accounts Test Org",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.integration.deleteMany({ where: { organisationId } });
+    await prisma.organisation.deleteMany({ where: { id: organisationId } });
+    await prisma.$disconnect();
+  });
+
+  it("connecting two different Gmail addresses creates two separate accounts", async () => {
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "sales@acme.test",
+      {
+        accessToken: "access-1",
+        refreshToken: "refresh-1",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "support@acme.test",
+      {
+        accessToken: "access-2",
+        refreshToken: "refresh-2",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "gmail",
+    );
+    expect(accounts.map((a) => a.name).sort()).toEqual([
+      "sales@acme.test",
+      "support@acme.test",
+    ]);
+  });
+
+  it("reconnecting the same address updates that account rather than duplicating it", async () => {
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "sales@acme.test",
+      {
+        accessToken: "access-old",
+        refreshToken: "refresh-old",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "sales@acme.test",
+      {
+        accessToken: "access-new",
+        refreshToken: "refresh-new",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "gmail",
+    );
+    expect(accounts).toHaveLength(1);
+
+    const token =
+      await integrationService.getValidGmailAccessToken(organisationId);
+    expect(token).toBe("access-new");
+  });
+
+  it("getValidGmailAccessToken uses the earliest-connected account as the default", async () => {
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "first@acme.test",
+      {
+        accessToken: "access-first",
+        refreshToken: "refresh-first",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "second@acme.test",
+      {
+        accessToken: "access-second",
+        refreshToken: "refresh-second",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    const token =
+      await integrationService.getValidGmailAccessToken(organisationId);
+    expect(token).toBe("access-first");
+  });
+
+  it("disconnecting one account leaves the others untouched", async () => {
+    const first = await integrationService.connectGmailAccount(
+      organisationId,
+      "keep@acme.test",
+      {
+        accessToken: "a",
+        refreshToken: "r",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "remove@acme.test",
+      {
+        accessToken: "a2",
+        refreshToken: "r2",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    const toRemove = (
+      await integrationService.listIntegrationsByProvider(
+        organisationId,
+        "gmail",
+      )
+    ).find((a) => a.name === "remove@acme.test")!;
+    await integrationService.disconnectIntegration(organisationId, toRemove.id);
+
+    const remaining = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "gmail",
+    );
+    expect(remaining.map((a) => a.id)).toEqual([first.id]);
+  });
+
+  it("credentials round-trip through encryption correctly — never stored as plaintext", async () => {
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "secret@acme.test",
+      {
+        accessToken: "super-secret-access-token",
+        refreshToken: "super-secret-refresh-token",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    const raw = await prisma.integration.findFirstOrThrow({
+      where: { organisationId, provider: "gmail" },
+    });
+    expect(raw.credentials).not.toContain("super-secret-access-token");
+    expect(raw.credentials).toMatch(/^v1:/);
+
+    const token =
+      await integrationService.getValidGmailAccessToken(organisationId);
+    expect(token).toBe("super-secret-access-token");
+  });
+
+  it("throws a clear error when no Gmail account is connected", async () => {
+    await expect(
+      integrationService.getValidGmailAccessToken(organisationId),
+    ).rejects.toThrow(/gmail is not connected/i);
+  });
+});

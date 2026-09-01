@@ -22,7 +22,7 @@ export default async function DashboardPage({
   const organisation = await getCurrentOrganisation();
   const [counts, gmailIntegration, totalTokens] = await Promise.all([
     dashboardService.getDashboardCounts(organisation.id),
-    integrationService.getGmailIntegration(organisation.id),
+    integrationService.getDefaultGmailIntegration(organisation.id),
     dashboardService.getTotalTokenUsage(organisation.id),
   ]);
 
@@ -115,7 +115,7 @@ export default async function DashboardPage({
             <div className="flex items-center gap-3">
               <p className="text-sm text-muted-foreground">
                 Connected as{" "}
-                <span className="font-mono">{gmailIntegration.email}</span> —
+                <span className="font-mono">{gmailIntegration.name}</span> —
                 only reads mail labelled{" "}
                 <span className="font-mono">{GMAIL_INBOX_LABEL}</span>, and
                 routes each email to whichever agent&apos;s description best

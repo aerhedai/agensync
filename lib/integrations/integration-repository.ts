@@ -1,70 +1,105 @@
 import { decryptToken, encryptToken } from "@/lib/crypto/token-cipher";
 import { prisma } from "@/lib/db/prisma";
-import type { Integration } from "@/lib/generated/prisma/client";
-import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
+import type { Integration, Prisma } from "@/lib/generated/prisma/client";
 
-// This file is the single chokepoint every Integration.accessToken/
-// refreshToken read and write funnels through — encrypt-on-write and
-// decrypt-on-read live entirely here so nothing above this layer
-// (integration-service.ts, the Gmail route handlers, lib/integrations/
-// gmail/{oauth,client}.ts) ever touches ciphertext or needs to know
-// encryption exists at all.
-function decryptIntegration<T extends Integration | null>(integration: T): T {
-  if (!integration) return integration;
+export interface ResolvedIntegration extends Omit<Integration, "credentials"> {
+  // Decrypted and JSON-parsed — never the raw ciphertext string above this
+  // layer. Null when the row has no credentials (a future provider that
+  // doesn't need any) or none were ever set.
+  credentials: Record<string, unknown> | null;
+}
+
+// The single chokepoint every Integration.credentials read/write funnels
+// through — same shape as the old Gmail-specific version of this file, now
+// operating on one encrypted JSON blob instead of two separately-encrypted
+// columns (see schema.prisma's comment on Integration.credentials).
+function decryptIntegration(integration: Integration): ResolvedIntegration {
   return {
     ...integration,
-    accessToken: decryptToken(integration.accessToken),
-    refreshToken: decryptToken(integration.refreshToken),
+    credentials: integration.credentials
+      ? (JSON.parse(decryptToken(integration.credentials)) as Record<
+          string,
+          unknown
+        >)
+      : null,
   };
 }
 
-export async function findGmailIntegration(organisationId: string) {
-  const integration = await prisma.integration.findUnique({
-    where: { organisationId_provider: { organisationId, provider: "GMAIL" } },
-  });
-  return decryptIntegration(integration);
+function encryptCredentials(
+  credentials: Record<string, unknown> | null,
+): string | null {
+  return credentials ? encryptToken(JSON.stringify(credentials)) : null;
 }
 
-export function upsertGmailIntegration(
-  organisationId: string,
-  email: string,
-  tokens: GmailTokens,
-) {
-  const accessToken = encryptToken(tokens.accessToken);
-  const refreshToken = encryptToken(tokens.refreshToken);
+export async function findIntegrationsByOrganisation(organisationId: string) {
+  const integrations = await prisma.integration.findMany({
+    where: { organisationId },
+    orderBy: [{ provider: "asc" }, { createdAt: "asc" }],
+  });
+  return integrations.map(decryptIntegration);
+}
 
+export async function findIntegrationsByProvider(
+  organisationId: string,
+  provider: string,
+) {
+  const integrations = await prisma.integration.findMany({
+    where: { organisationId, provider },
+    orderBy: { createdAt: "asc" },
+  });
+  return integrations.map(decryptIntegration);
+}
+
+export async function findIntegrationById(organisationId: string, id: string) {
+  const integration = await prisma.integration.findFirst({
+    where: { id, organisationId },
+  });
+  return integration ? decryptIntegration(integration) : null;
+}
+
+/**
+ * Keyed on the (organisationId, provider, name) unique constraint —
+ * reconnecting the same account (e.g. re-authorizing the same Gmail
+ * address) updates its row; a different name is a genuinely new account.
+ */
+export function upsertIntegration(
+  organisationId: string,
+  provider: string,
+  name: string,
+  data: {
+    config: Prisma.InputJsonValue;
+    credentials: Record<string, unknown> | null;
+    expiresAt?: Date | null;
+  },
+) {
+  const credentials = encryptCredentials(data.credentials);
   return prisma.integration.upsert({
-    where: { organisationId_provider: { organisationId, provider: "GMAIL" } },
-    update: {
-      email,
-      accessToken,
-      refreshToken,
-      expiresAt: tokens.expiresAt,
+    where: {
+      organisationId_provider_name: { organisationId, provider, name },
     },
+    update: { config: data.config, credentials, expiresAt: data.expiresAt },
     create: {
       organisationId,
-      provider: "GMAIL",
-      email,
-      accessToken,
-      refreshToken,
-      expiresAt: tokens.expiresAt,
+      provider,
+      name,
+      config: data.config,
+      credentials,
+      expiresAt: data.expiresAt,
     },
   });
 }
 
-export function updateGmailAccessToken(
-  organisationId: string,
-  accessToken: string,
-  expiresAt: Date,
+export function updateIntegrationCredentials(
+  id: string,
+  credentials: Record<string, unknown>,
+  expiresAt?: Date,
 ) {
   return prisma.integration.update({
-    where: { organisationId_provider: { organisationId, provider: "GMAIL" } },
-    data: { accessToken: encryptToken(accessToken), expiresAt },
+    where: { id },
+    data: { credentials: encryptCredentials(credentials), expiresAt },
   });
 }
 
-export function deleteGmailIntegration(organisationId: string) {
-  return prisma.integration.deleteMany({
-    where: { organisationId, provider: "GMAIL" },
-  });
+export function deleteIntegration(organisationId: string, id: string) {
+  return prisma.integration.deleteMany({ where: { id, organisationId } });
 }

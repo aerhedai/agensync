@@ -14,7 +14,7 @@ export async function connectMcpClient(
   organisationId: string,
   actionIntegrationId?: string | null,
 ): Promise<Client> {
-  const server = createMcpServer(organisationId, actionIntegrationId);
+  const server = await createMcpServer(organisationId, actionIntegrationId);
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
 

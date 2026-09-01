@@ -32,6 +32,12 @@ export const TOOL_REGISTRY = [
     description: "Send an email reply via Gmail — always requires approval.",
   },
   {
+    name: "notify_slack",
+    label: "Notify Slack",
+    description:
+      "Post an internal notification to a Slack channel, e.g. to alert a human that something needs attention.",
+  },
+  {
     name: "search_custom_entity",
     label: "Search custom entity",
     description:

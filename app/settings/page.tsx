@@ -8,17 +8,19 @@ import { getCurrentOrganisation } from "@/lib/organisations/current-organisation
 
 export const dynamic = "force-dynamic";
 
-const GMAIL_ERROR_MESSAGES: Record<string, string> = {
+// OAuth error codes are mostly provider-agnostic outcomes (invalid_state is
+// this app's own CSRF check; access_denied is the standard OAuth code for
+// "the user cancelled the consent screen", used by both Google and Slack).
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   invalid_state:
     "The connection attempt expired or was tampered with. Please try again.",
-  access_denied: "Google sign-in was cancelled.",
+  access_denied: "Sign-in was cancelled.",
 };
 
 export default async function SettingsPage({
   searchParams,
 }: PageProps<"/settings">) {
-  const { gmail_connected: gmailConnected, gmail_error: gmailError } =
-    await searchParams;
+  const { connected, error } = await searchParams;
   const organisation = await getCurrentOrganisation();
   const integrations = await integrationService.listIntegrations(
     organisation.id,
@@ -69,11 +71,18 @@ export default async function SettingsPage({
         <CardContent>
           <IntegrationsSection
             accountsByProvider={accountsByProvider}
-            gmailConnected={typeof gmailConnected === "string"}
-            gmailError={
-              typeof gmailError === "string"
-                ? (GMAIL_ERROR_MESSAGES[gmailError] ??
-                  `Couldn't connect Gmail: ${gmailError}`)
+            connectedProvider={
+              typeof connected === "string" ? connected : undefined
+            }
+            errorMessage={
+              typeof error === "string"
+                ? (() => {
+                    const [provider, code = "unknown_error"] = error.split(":");
+                    return (
+                      OAUTH_ERROR_MESSAGES[code] ??
+                      `Couldn't connect ${provider}: ${code}`
+                    );
+                  })()
                 : undefined
             }
             baseUrl={baseUrl}

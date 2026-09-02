@@ -5,12 +5,16 @@ import { createCalculateQuoteTool } from "@/lib/mcp/tools/calculate-quote";
 import { createCheckCalendarAvailabilityTool } from "@/lib/mcp/tools/check-calendar-availability";
 import { createCheckInventoryTool } from "@/lib/mcp/tools/check-inventory";
 import { createCreateCalendarEventTool } from "@/lib/mcp/tools/create-calendar-event";
+import { createCreateCustomEntityRecordTool } from "@/lib/mcp/tools/create-custom-entity-record";
+import { createCreateStorageFolderTool } from "@/lib/mcp/tools/create-storage-folder";
+import { createFindCustomEntityRecordTool } from "@/lib/mcp/tools/find-custom-entity-record";
 import { createFindCustomerTool } from "@/lib/mcp/tools/find-customer";
 import { createFindProductTool } from "@/lib/mcp/tools/find-product";
 import { createNotifySlackTool } from "@/lib/mcp/tools/notify-slack";
 import { createNotifyTeamsTool } from "@/lib/mcp/tools/notify-teams";
 import { createSearchCustomEntityTool } from "@/lib/mcp/tools/search-custom-entity";
 import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
+import { createUpdateCustomEntityRecordTool } from "@/lib/mcp/tools/update-custom-entity-record";
 
 // The four Phase 5 tools are read-only lookups/calculations. send_email
 // (Phase 9) is the first tool that mutates external state, so it's marked
@@ -125,6 +129,54 @@ export async function createMcpServer(
       annotations: readOnly,
     },
     searchCustomEntityTool.handler,
+  );
+
+  const findCustomEntityRecordTool =
+    createFindCustomEntityRecordTool(organisationId);
+  server.registerTool(
+    findCustomEntityRecordTool.name,
+    {
+      description: findCustomEntityRecordTool.description,
+      inputSchema: findCustomEntityRecordTool.inputSchema,
+      outputSchema: findCustomEntityRecordTool.outputSchema,
+      annotations: readOnly,
+    },
+    findCustomEntityRecordTool.handler,
+  );
+
+  const createCustomEntityRecordTool =
+    createCreateCustomEntityRecordTool(organisationId);
+  server.registerTool(
+    createCustomEntityRecordTool.name,
+    {
+      description: createCustomEntityRecordTool.description,
+      inputSchema: createCustomEntityRecordTool.inputSchema,
+      outputSchema: createCustomEntityRecordTool.outputSchema,
+    },
+    createCustomEntityRecordTool.handler,
+  );
+
+  const updateCustomEntityRecordTool =
+    createUpdateCustomEntityRecordTool(organisationId);
+  server.registerTool(
+    updateCustomEntityRecordTool.name,
+    {
+      description: updateCustomEntityRecordTool.description,
+      inputSchema: updateCustomEntityRecordTool.inputSchema,
+      outputSchema: updateCustomEntityRecordTool.outputSchema,
+    },
+    updateCustomEntityRecordTool.handler,
+  );
+
+  const createStorageFolderTool = createCreateStorageFolderTool(organisationId);
+  server.registerTool(
+    createStorageFolderTool.name,
+    {
+      description: createStorageFolderTool.description,
+      inputSchema: createStorageFolderTool.inputSchema,
+      outputSchema: createStorageFolderTool.outputSchema,
+    },
+    createStorageFolderTool.handler,
   );
 
   const sendEmailTool = createSendEmailTool(

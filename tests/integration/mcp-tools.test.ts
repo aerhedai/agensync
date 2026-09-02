@@ -82,7 +82,7 @@ describe("MCP tool server", () => {
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
-  it("lists all ten tools", async () => {
+  it("lists all fourteen tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
@@ -91,12 +91,16 @@ describe("MCP tool server", () => {
       "check_calendar_availability",
       "check_inventory",
       "create_calendar_event",
+      "create_custom_entity_record",
+      "create_storage_folder",
+      "find_custom_entity_record",
       "find_customer",
       "find_product",
       "notify_slack",
       "notify_teams",
       "search_custom_entity",
       "send_email",
+      "update_custom_entity_record",
     ]);
   });
 
@@ -475,6 +479,104 @@ describe("MCP tool server", () => {
         text: expect.stringContaining(
           'No custom entity type named "NotARealType"',
         ),
+      },
+    ]);
+  });
+
+  it("find_custom_entity_record matches an exact field value, not a substring", async () => {
+    const found = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        field: "tenant",
+        value: "Jordan Reyes",
+      },
+    });
+    expect(found.structuredContent).toMatchObject({
+      found: true,
+      record: { data: { tenant: "Jordan Reyes" } },
+    });
+
+    const notFound = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: { entityType: "Property", field: "tenant", value: "Jordan" },
+    });
+    expect(notFound.structuredContent).toEqual({ found: false, record: null });
+  });
+
+  it("create_custom_entity_record creates a new record with the given fields", async () => {
+    const result = await client.callTool({
+      name: "create_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        data: { address: "9 Oak Lane", tenant: "Sam Okafor" },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      record: { data: { address: "9 Oak Lane", tenant: "Sam Okafor" } },
+    });
+
+    const refetch = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        field: "tenant",
+        value: "Sam Okafor",
+      },
+    });
+    expect(refetch.structuredContent).toMatchObject({ found: true });
+  });
+
+  it("update_custom_entity_record merges fields, leaving others untouched", async () => {
+    const existing = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        field: "tenant",
+        value: "Jordan Reyes",
+      },
+    });
+    const recordId = (existing.structuredContent as { record: { id: string } })
+      .record.id;
+
+    const result = await client.callTool({
+      name: "update_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        recordId,
+        data: { status: "Vacated" },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      record: {
+        data: {
+          address: "14 Birch Road",
+          tenant: "Jordan Reyes",
+          status: "Vacated",
+        },
+      },
+    });
+  });
+
+  it("update_custom_entity_record errors clearly for a record id that doesn't exist", async () => {
+    const result = await client.callTool({
+      name: "update_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        recordId: "nonexistent-id",
+        data: { status: "Vacated" },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining('No record with id "nonexistent-id"'),
       },
     ]);
   });

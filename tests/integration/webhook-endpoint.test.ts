@@ -86,16 +86,7 @@ describe("webhook inbound endpoint", () => {
     expect(response.status).toBe(400);
   });
 
-  it("rejects a payload missing the required body field", async () => {
-    const response = await post(
-      integrationId,
-      { authorization: `Bearer ${secret}` },
-      { subject: "no body field" },
-    );
-    expect(response.status).toBe(400);
-  });
-
-  it("accepts a valid payload and reports no_workflow when this org has none configured", async () => {
+  it("accepts a valid email-shaped payload and reports no_workflow when this org has none configured", async () => {
     const response = await post(
       integrationId,
       { authorization: `Bearer ${secret}` },
@@ -104,5 +95,25 @@ describe("webhook inbound endpoint", () => {
     expect(response.status).toBe(200);
     const json = await response.json();
     expect(json).toEqual({ matched: false, reason: "no_workflow" });
+  });
+
+  it("accepts a structured, non-email-shaped payload too — a signal a business's own pipeline parses for itself", async () => {
+    const response = await post(
+      integrationId,
+      { authorization: `Bearer ${secret}` },
+      { jobId: "1042", status: "Approved", taskName: "Quote request" },
+    );
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json).toEqual({ matched: false, reason: "no_workflow" });
+  });
+
+  it("rejects valid JSON that isn't an object — a bare string or array", async () => {
+    const response = await post(
+      integrationId,
+      { authorization: `Bearer ${secret}` },
+      '"just a JSON string, not an object"',
+    );
+    expect(response.status).toBe(400);
   });
 });

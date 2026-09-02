@@ -204,7 +204,11 @@ model CustomEntityRecord {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  entityType   CustomEntityType @relation(fields: [entityTypeId], references: [id])
+  // Cascade: deleting a business-defined entity type (e.g. no longer
+  // tracking "Property") deletes its records with it — a business
+  // removing a catalog type means removing its entries, not leaving them
+  // orphaned with no parent type to display or validate them against.
+  entityType   CustomEntityType @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
   organisation Organisation     @relation(fields: [organisationId], references: [id])
 
   @@index([entityTypeId])

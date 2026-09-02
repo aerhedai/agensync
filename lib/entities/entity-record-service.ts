@@ -24,3 +24,14 @@ export function createRecord(
     data,
   );
 }
+
+export async function deleteRecord(
+  organisationId: string,
+  recordId: string,
+): Promise<boolean> {
+  const { count } = await entityRecordRepository.deleteRecord(
+    organisationId,
+    recordId,
+  );
+  return count > 0;
+}

@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DeleteEntityTypeDialog } from "@/components/entities/delete-entity-type-dialog";
+import { DeleteRecordButton } from "@/components/entities/delete-record-button";
 import * as entityRecordService from "@/lib/entities/entity-record-service";
 import * as entityTypeService from "@/lib/entities/entity-type-service";
 import { entityFieldsSchema } from "@/lib/entities/schemas";
@@ -28,12 +30,26 @@ export default async function EntityTypeDetailPage({
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{entityType.name}</h1>
-        <Button
-          nativeButton={false}
-          render={<Link href={`/catalog/entities/${id}/records/new`} />}
-        >
-          Add record
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/catalog/entities/${id}/edit`} />}
+          >
+            Edit
+          </Button>
+          <Button
+            nativeButton={false}
+            render={<Link href={`/catalog/entities/${id}/records/new`} />}
+          >
+            Add record
+          </Button>
+          <DeleteEntityTypeDialog
+            id={id}
+            name={entityType.name}
+            recordCount={records.length}
+          />
+        </div>
       </div>
 
       <Card>
@@ -70,16 +86,22 @@ export default async function EntityTypeDetailPage({
                 return (
                   <div
                     key={record.id}
-                    className="rounded-md border border-border p-3 text-sm"
+                    className="flex items-start justify-between gap-3 rounded-md border border-border p-3 text-sm"
                   >
-                    {fields.map((field) => (
-                      <p key={field.name}>
-                        <span className="text-muted-foreground">
-                          {field.name}:
-                        </span>{" "}
-                        {String(data[field.name] ?? "")}
-                      </p>
-                    ))}
+                    <div>
+                      {fields.map((field) => (
+                        <p key={field.name}>
+                          <span className="text-muted-foreground">
+                            {field.name}:
+                          </span>{" "}
+                          {String(data[field.name] ?? "")}
+                        </p>
+                      ))}
+                    </div>
+                    <DeleteRecordButton
+                      entityTypeId={id}
+                      recordId={record.id}
+                    />
                   </div>
                 );
               })}

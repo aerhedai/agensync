@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 
 import {
   createEntityTypeAction,
+  updateEntityTypeAction,
   type EntityTypeFormState,
 } from "@/app/(app)/catalog/entities/actions";
 import { Button } from "@/components/ui/button";
@@ -12,23 +13,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { EntityFieldConfig } from "@/lib/entities/schemas";
 
-function SubmitButton() {
+function SubmitButton({
+  pendingLabel,
+  label,
+}: {
+  pendingLabel: string;
+  label: string;
+}) {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending}>
-      {pending ? "Creating…" : "Create entity type"}
+      {pending ? pendingLabel : label}
     </Button>
   );
 }
 
-export function EntityTypeForm() {
+export function EntityTypeForm({
+  editing,
+}: {
+  // Omitted: create mode. Present: edit mode, pre-filled and bound to
+  // updateEntityTypeAction for this entity type's id.
+  editing?: { id: string; name: string; fields: EntityFieldConfig[] };
+} = {}) {
   const [state, formAction] = useActionState<EntityTypeFormState, FormData>(
-    createEntityTypeAction,
+    editing
+      ? updateEntityTypeAction.bind(null, editing.id)
+      : createEntityTypeAction,
     {},
   );
-  const [fields, setFields] = useState<EntityFieldConfig[]>([
-    { name: "", description: "" },
-  ]);
+  const [fields, setFields] = useState<EntityFieldConfig[]>(
+    editing?.fields ?? [{ name: "", description: "" }],
+  );
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -36,7 +51,13 @@ export function EntityTypeForm() {
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="name">Name</Label>
-        <Input id="name" name="name" placeholder="e.g. Property" required />
+        <Input
+          id="name"
+          name="name"
+          placeholder="e.g. Property"
+          defaultValue={editing?.name}
+          required
+        />
         {state.fieldErrors?.name && (
           <p className="text-sm text-destructive">
             {state.fieldErrors.name[0]}
@@ -110,7 +131,10 @@ export function EntityTypeForm() {
         )}
       </div>
 
-      <SubmitButton />
+      <SubmitButton
+        label={editing ? "Save changes" : "Create entity type"}
+        pendingLabel={editing ? "Saving…" : "Creating…"}
+      />
     </form>
   );
 }

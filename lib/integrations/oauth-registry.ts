@@ -1,7 +1,9 @@
 import { gmailOAuthAdapter } from "@/lib/integrations/gmail/oauth";
+import { googleDriveOAuthAdapter } from "@/lib/integrations/google-drive/oauth";
 import type { OAuthAdapter } from "@/lib/integrations/oauth-adapter";
 import { outlookOAuthAdapter } from "@/lib/integrations/outlook/oauth";
 import { outlookCalendarOAuthAdapter } from "@/lib/integrations/outlook-calendar/oauth";
+import { sharepointOAuthAdapter } from "@/lib/integrations/sharepoint/oauth";
 import { slackOAuthAdapter } from "@/lib/integrations/slack/oauth";
 import { teamsOAuthAdapter } from "@/lib/integrations/teams/oauth";
 
@@ -14,6 +16,8 @@ const OAUTH_ADAPTERS: Record<string, OAuthAdapter> = {
   outlook: outlookOAuthAdapter,
   teams: teamsOAuthAdapter,
   "outlook-calendar": outlookCalendarOAuthAdapter,
+  "google-drive": googleDriveOAuthAdapter,
+  sharepoint: sharepointOAuthAdapter,
 };
 
 export function getOAuthAdapter(provider: string): OAuthAdapter | null {

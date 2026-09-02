@@ -1,5 +1,7 @@
 import {
   CalendarClock,
+  FolderOpen,
+  HardDrive,
   Inbox,
   Mail,
   MessageSquare,
@@ -39,6 +41,14 @@ const ICONS: Record<string, { Icon: LucideIcon; className: string }> = {
   webhook: {
     Icon: Webhook,
     className: "bg-slate-500/15 text-slate-600 dark:text-slate-400",
+  },
+  "google-drive": {
+    Icon: HardDrive,
+    className: "bg-green-500/15 text-green-600 dark:text-green-400",
+  },
+  sharepoint: {
+    Icon: FolderOpen,
+    className: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
   },
 };
 

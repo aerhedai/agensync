@@ -300,6 +300,16 @@ model Agent {
   // provider; it only matters the moment two categories need to use
   // *different* accounts of the same provider.
   actionIntegrationId  String?
+  // Generic key-value config bag for pipeline-specific settings that don't
+  // yet warrant their own named column — same reasoning as
+  // Organisation.currency/Integration.provider being plain strings: a
+  // narrowly-named column per future pipeline (the way extractionFields/
+  // guardrailKeywords/replySubjectTemplate each are) would mean a
+  // migration every time a *new* pipeline needs its own settings shape.
+  // Each pipeline defines and validates its own shape for this in
+  // application code (e.g. entity-status-signal-pipeline.ts), not the
+  // database. Empty object means "not configured."
+  pipelineConfig       Json               @default("{}")
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
   actionIntegration   Integration?    @relation(fields: [actionIntegrationId], references: [id])

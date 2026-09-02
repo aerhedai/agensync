@@ -1,11 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
+import * as accountService from "@/lib/auth/account-service";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import * as organisationService from "@/lib/organisations/organisation-service";
-import { organisationInputSchema } from "@/lib/organisations/schemas";
+import {
+  legalLinksInputSchema,
+  organisationInputSchema,
+} from "@/lib/organisations/schemas";
 
 export async function disconnectIntegrationAction(integrationId: string) {
   const organisation = await getCurrentOrganisation();
@@ -13,7 +19,16 @@ export async function disconnectIntegrationAction(integrationId: string) {
     organisation.id,
     integrationId,
   );
-  revalidatePath("/settings");
+  revalidatePath("/settings/integrations");
+}
+
+// Bound to a provider the same way disconnectIntegrationAction is bound to
+// an integrationId — "Delete" on an integration card removes every
+// connected account of that provider in one go.
+export async function disconnectAllAccountsAction(provider: string) {
+  const organisation = await getCurrentOrganisation();
+  await integrationService.disconnectAllAccounts(organisation.id, provider);
+  revalidatePath("/settings/integrations");
 }
 
 export type WebhookAccountFormState = {
@@ -55,7 +70,7 @@ export async function createWebhookAccountAction(
       organisation.id,
       name.trim(),
     );
-  revalidatePath("/settings");
+  revalidatePath("/settings/integrations");
   return { created: { integrationId: integration.id, secret } };
 }
 
@@ -78,6 +93,67 @@ export async function updateBusinessProfileAction(
 
   const organisation = await getCurrentOrganisation();
   await organisationService.updateOrganisation(organisation.id, parsed.data);
-  revalidatePath("/settings");
+  revalidatePath("/settings/business");
   return {};
+}
+
+export type LegalLinksFormState = {
+  error?: string;
+  fieldErrors?: Record<string, string[]>;
+};
+
+export async function updateLegalLinksAction(
+  _prevState: LegalLinksFormState,
+  formData: FormData,
+): Promise<LegalLinksFormState> {
+  const parsed = legalLinksInputSchema.safeParse({
+    termsUrl: formData.get("termsUrl"),
+    privacyUrl: formData.get("privacyUrl"),
+  });
+  if (!parsed.success) {
+    return { fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+
+  const organisation = await getCurrentOrganisation();
+  await organisationService.updateLegalLinks(organisation.id, parsed.data);
+  revalidatePath("/settings/legal");
+  return {};
+}
+
+export type DangerZoneFormState = { error?: string };
+
+// Confirmation is checked server-side, not just disabled-until-matching in
+// the client — a destructive action's real gate can't live only in UI state.
+export async function deleteMyAccountAction(
+  _prevState: DangerZoneFormState,
+  formData: FormData,
+): Promise<DangerZoneFormState> {
+  const confirmation = formData.get("confirmation");
+  if (confirmation !== "DELETE") {
+    return { error: 'Type "DELETE" to confirm.' };
+  }
+
+  const user = await getCurrentUser();
+  await accountService.deleteMyAccount(user.id, user.clerkUserId);
+  redirect("/sign-in");
+}
+
+export async function deleteOrganisationAction(
+  _prevState: DangerZoneFormState,
+  formData: FormData,
+): Promise<DangerZoneFormState> {
+  const organisation = await getCurrentOrganisation();
+  const confirmation = formData.get("confirmation");
+  if (
+    typeof confirmation !== "string" ||
+    confirmation.trim() !== organisation.name
+  ) {
+    return { error: `Type "${organisation.name}" to confirm.` };
+  }
+
+  await organisationService.deleteOrganisation(
+    organisation.id,
+    organisation.clerkOrgId,
+  );
+  redirect("/select-organisation");
 }

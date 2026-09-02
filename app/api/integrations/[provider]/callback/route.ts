@@ -50,14 +50,17 @@ export async function GET(
   if (error) {
     return NextResponse.redirect(
       new URL(
-        `/settings?error=${provider}:${encodeURIComponent(error)}`,
+        `/settings/integrations?error=${provider}:${encodeURIComponent(error)}`,
         baseUrl,
       ),
     );
   }
   if (!code || !state || state !== expectedState) {
     return NextResponse.redirect(
-      new URL(`/settings?error=${provider}:invalid_state`, baseUrl),
+      new URL(
+        `/settings/integrations?error=${provider}:invalid_state`,
+        baseUrl,
+      ),
     );
   }
 
@@ -75,6 +78,6 @@ export async function GET(
   );
 
   return NextResponse.redirect(
-    new URL(`/settings?connected=${provider}`, baseUrl),
+    new URL(`/settings/integrations?connected=${provider}`, baseUrl),
   );
 }

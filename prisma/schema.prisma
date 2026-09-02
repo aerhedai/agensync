@@ -105,6 +105,13 @@ model Organisation {
   // supported. What the app actually accepts is constrained at the
   // application layer instead (lib/currency/currency-symbols.ts).
   currency   String   @default("GBP")
+  // Set by the business itself in Settings — this app has no legal team of
+  // its own to author real Terms of Service/Privacy Policy text, so these
+  // are just outbound links to wherever the business hosts its own,
+  // surfaced consistently in the product rather than fabricated content.
+  // Null means "not set yet."
+  termsUrl   String?
+  privacyUrl String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

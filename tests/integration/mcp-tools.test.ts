@@ -1,8 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { prisma } from "@/lib/db/prisma";
+import * as integrationService from "@/lib/integrations/integration-service";
 import { createMcpServer } from "@/lib/mcp/server";
 
 // Real MCP protocol round trip (list + call, real Zod validation, real
@@ -71,24 +72,29 @@ describe("MCP tool server", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await client.close();
     await prisma.product.deleteMany({ where: { organisationId } });
     await prisma.customer.deleteMany({ where: { organisationId } });
     await prisma.customEntityRecord.deleteMany({ where: { organisationId } });
     await prisma.customEntityType.deleteMany({ where: { organisationId } });
+    await prisma.integration.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
-  it("lists all seven tools", async () => {
+  it("lists all ten tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
     expect(names).toEqual([
       "calculate_quote",
+      "check_calendar_availability",
       "check_inventory",
+      "create_calendar_event",
       "find_customer",
       "find_product",
       "notify_slack",
+      "notify_teams",
       "search_custom_entity",
       "send_email",
     ]);
@@ -194,7 +200,7 @@ describe("MCP tool server", () => {
     expect(result.isError).toBe(true);
   });
 
-  it("send_email reports a tool error when Gmail isn't connected for the organisation", async () => {
+  it("send_email reports a tool error when no email account is connected for the organisation", async () => {
     const result = await client.callTool({
       name: "send_email",
       arguments: {
@@ -206,7 +212,10 @@ describe("MCP tool server", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toMatchObject([
-      { type: "text", text: expect.stringContaining("Gmail is not connected") },
+      {
+        type: "text",
+        text: expect.stringContaining("No email account (Gmail or Outlook)"),
+      },
     ]);
   });
 
@@ -214,7 +223,7 @@ describe("MCP tool server", () => {
     // Confirms organisationId can't be smuggled in via tool arguments (the
     // Zod input schema doesn't even accept one) — it's bound at server
     // construction, so a malicious/confused LLM has no channel to target
-    // another organisation's Gmail credentials (CLAUDE.md #22).
+    // another organisation's email credentials (CLAUDE.md #22).
     const result = await client.callTool({
       name: "send_email",
       arguments: {
@@ -227,8 +236,77 @@ describe("MCP tool server", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toMatchObject([
-      { type: "text", text: expect.stringContaining("Gmail is not connected") },
+      {
+        type: "text",
+        text: expect.stringContaining("No email account (Gmail or Outlook)"),
+      },
     ]);
+  });
+
+  it("send_email uses Outlook when only Outlook is connected", async () => {
+    await integrationService.connectOAuthAccount(organisationId, "outlook", {
+      accountName: "sales@acme.test",
+      config: { email: "sales@acme.test" },
+      credentials: {
+        accessToken: "access-outlook",
+        refreshToken: "refresh-outlook",
+      },
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: "buyer@customer-abc.test",
+        subject: "Your quote",
+        body: "£7,500 for 500 units of Product A.",
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({ sent: true });
+  });
+
+  it("send_email picks the earliest-connected account when both Gmail and Outlook are connected, not Gmail by default", async () => {
+    // Outlook connected first — must still win, proving there's no
+    // hardcoded "Gmail always wins" priority.
+    await integrationService.connectOAuthAccount(organisationId, "outlook", {
+      accountName: "outlook@acme.test",
+      config: { email: "outlook@acme.test" },
+      credentials: {
+        accessToken: "access-outlook",
+        refreshToken: "refresh-outlook",
+      },
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "gmail@acme.test",
+      {
+        accessToken: "access-gmail",
+        refreshToken: "refresh-gmail",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: "buyer@customer-abc.test",
+        subject: "Your quote",
+        body: "£7,500 for 500 units of Product A.",
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    // Outlook's sendMail hits /me/sendMail — confirms Outlook's client was
+    // used, not Gmail's.
+    const [calledUrl] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(calledUrl).toContain("/sendMail");
   });
 
   it("notify_slack reports a tool error when Slack isn't connected for the organisation", async () => {
@@ -256,6 +334,100 @@ describe("MCP tool server", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatchObject([
       { type: "text", text: expect.stringContaining("Slack is not connected") },
+    ]);
+  });
+
+  it("notify_teams reports a tool error when Teams isn't connected for the organisation", async () => {
+    const result = await client.callTool({
+      name: "notify_teams",
+      arguments: {
+        teamId: "team-1",
+        channelId: "channel-1",
+        message: "A quote needs approval.",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Teams is not connected") },
+    ]);
+  });
+
+  it("notify_teams is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
+    const result = await client.callTool({
+      name: "notify_teams",
+      arguments: {
+        teamId: "team-1",
+        channelId: "channel-1",
+        message: "A quote needs approval.",
+        organisationId: "some-other-org",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("Teams is not connected") },
+    ]);
+  });
+
+  it("check_calendar_availability reports a tool error when Outlook Calendar isn't connected", async () => {
+    const result = await client.callTool({
+      name: "check_calendar_availability",
+      arguments: {
+        attendees: ["buyer@customer-abc.test"],
+        durationMinutes: 30,
+        rangeStart: "2026-09-02T09:00:00.000Z",
+        rangeEnd: "2026-09-02T17:00:00.000Z",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining("Outlook Calendar is not connected"),
+      },
+    ]);
+  });
+
+  it("create_calendar_event reports a tool error when Outlook Calendar isn't connected", async () => {
+    const result = await client.callTool({
+      name: "create_calendar_event",
+      arguments: {
+        subject: "Quote review",
+        start: "2026-09-02T09:00:00.000Z",
+        end: "2026-09-02T09:30:00.000Z",
+        attendees: ["buyer@customer-abc.test"],
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining("Outlook Calendar is not connected"),
+      },
+    ]);
+  });
+
+  it("create_calendar_event is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
+    const result = await client.callTool({
+      name: "create_calendar_event",
+      arguments: {
+        subject: "Quote review",
+        start: "2026-09-02T09:00:00.000Z",
+        end: "2026-09-02T09:30:00.000Z",
+        attendees: ["buyer@customer-abc.test"],
+        organisationId: "some-other-org",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining("Outlook Calendar is not connected"),
+      },
     ]);
   });
 

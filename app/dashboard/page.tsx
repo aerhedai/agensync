@@ -4,9 +4,13 @@ import { checkInboxAction } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import * as dashboardService from "@/lib/dashboard/dashboard-service";
-import { GMAIL_INBOX_LABEL } from "@/lib/integrations/gmail/client";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
+
+const EMAIL_PROVIDER_LABELS: Record<string, string> = {
+  gmail: "Gmail",
+  outlook: "Outlook",
+};
 
 // Always show live counts; this must never be a stale build-time snapshot.
 export const dynamic = "force-dynamic";
@@ -20,9 +24,9 @@ export default async function DashboardPage({
     inbox_error: inboxError,
   } = await searchParams;
   const organisation = await getCurrentOrganisation();
-  const [counts, gmailIntegration, totalTokens] = await Promise.all([
+  const [counts, emailIntegrations, totalTokens] = await Promise.all([
     dashboardService.getDashboardCounts(organisation.id),
-    integrationService.getDefaultGmailIntegration(organisation.id),
+    integrationService.getConnectedEmailIntegrations(organisation.id),
     dashboardService.getTotalTokenUsage(organisation.id),
   ]);
 
@@ -111,13 +115,17 @@ export default async function DashboardPage({
           {typeof inboxError === "string" && (
             <p className="text-sm text-destructive">{inboxError}</p>
           )}
-          {gmailIntegration ? (
+          {emailIntegrations.length > 0 ? (
             <div className="flex items-center gap-3">
               <p className="text-sm text-muted-foreground">
-                Connected as{" "}
-                <span className="font-mono">{gmailIntegration.name}</span> —
-                only reads mail labelled{" "}
-                <span className="font-mono">{GMAIL_INBOX_LABEL}</span>, and
+                Connected:{" "}
+                {emailIntegrations
+                  .map(
+                    (integration) =>
+                      `${EMAIL_PROVIDER_LABELS[integration.provider] ?? integration.provider} (${integration.name})`,
+                  )
+                  .join(", ")}{" "}
+                — only reads mail routed into the Agensync label/folder, and
                 routes each email to whichever agent&apos;s description best
                 matches it (see Settings).
               </p>
@@ -131,7 +139,7 @@ export default async function DashboardPage({
             <p className="text-sm text-muted-foreground">
               Not connected.{" "}
               <Link href="/settings" className="text-primary hover:underline">
-                Connect Gmail in Settings
+                Connect Gmail or Outlook in Settings
               </Link>{" "}
               to trigger agents from real email.
             </p>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { WebhookAccountForm } from "@/components/settings/webhook-account-form";
 import { GMAIL_INBOX_LABEL } from "@/lib/integrations/gmail/client";
 import { INTEGRATION_REGISTRY } from "@/lib/integrations/integration-registry";
+import { OUTLOOK_INBOX_FOLDER } from "@/lib/integrations/outlook/client";
 
 export interface DisplayAccount {
   id: string;
@@ -47,36 +48,94 @@ function AddAccountButton({
 }
 
 function ProviderSetupNotes({ provider }: { provider: string }) {
-  if (provider !== "gmail") return null;
-  return (
-    <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-      <p>
-        Agents only ever read email labelled{" "}
-        <span className="font-mono text-foreground">{GMAIL_INBOX_LABEL}</span> —
-        never a connected account&rsquo;s whole inbox. One-time setup per
-        account in Gmail:
-      </p>
-      <ol className="mt-2 list-decimal space-y-1 pl-4">
-        <li>
-          Create a label called{" "}
-          <span className="font-mono text-foreground">{GMAIL_INBOX_LABEL}</span>
-          .
-        </li>
-        <li>
-          Pick a dedicated address customers send inquiries to (e.g. a{" "}
-          <span className="font-mono text-foreground">+quotes</span> alias on
-          this account).
-        </li>
-        <li>
-          Create a Gmail filter matching that address that applies the label
-          automatically.
-        </li>
-      </ol>
-      <p className="mt-2">
-        No manual labelling per email — Gmail applies it for you from then on.
-      </p>
-    </div>
-  );
+  if (provider === "gmail") {
+    return (
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p>
+          Agents only ever read email labelled{" "}
+          <span className="font-mono text-foreground">{GMAIL_INBOX_LABEL}</span>{" "}
+          — never a connected account&rsquo;s whole inbox. One-time setup per
+          account in Gmail:
+        </p>
+        <ol className="mt-2 list-decimal space-y-1 pl-4">
+          <li>
+            Create a label called{" "}
+            <span className="font-mono text-foreground">
+              {GMAIL_INBOX_LABEL}
+            </span>
+            .
+          </li>
+          <li>
+            Pick a dedicated address customers send inquiries to (e.g. a{" "}
+            <span className="font-mono text-foreground">+quotes</span> alias on
+            this account).
+          </li>
+          <li>
+            Create a Gmail filter matching that address that applies the label
+            automatically.
+          </li>
+        </ol>
+        <p className="mt-2">
+          No manual labelling per email — Gmail applies it for you from then on.
+        </p>
+      </div>
+    );
+  }
+
+  if (provider === "outlook") {
+    return (
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p>
+          Agents only ever read email routed into the{" "}
+          <span className="font-mono text-foreground">
+            {OUTLOOK_INBOX_FOLDER}
+          </span>{" "}
+          folder — never a connected account&rsquo;s whole mailbox. One-time
+          setup per account in Outlook:
+        </p>
+        <ol className="mt-2 list-decimal space-y-1 pl-4">
+          <li>
+            Create a folder called{" "}
+            <span className="font-mono text-foreground">
+              {OUTLOOK_INBOX_FOLDER}
+            </span>
+            .
+          </li>
+          <li>
+            Pick a dedicated address customers send inquiries to (e.g. a{" "}
+            <span className="font-mono text-foreground">+quotes</span> alias on
+            this account).
+          </li>
+          <li>
+            Create an Outlook inbox rule matching that address that moves mail
+            into the folder automatically.
+          </li>
+        </ol>
+        <p className="mt-2">
+          No manual filing per email — Outlook applies it for you from then on.
+        </p>
+      </div>
+    );
+  }
+
+  if (provider === "teams") {
+    return (
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p>
+          Messages post as whichever person connects this account — not as a
+          separate &ldquo;Agensync&rdquo; bot. A real bot identity would need
+          Microsoft&rsquo;s separate Bot Service, which this doesn&rsquo;t use.
+        </p>
+        <p className="mt-2">
+          To notify a specific channel, an agent needs that channel&rsquo;s team
+          ID and channel ID — open the channel in Teams, use &ldquo;Get link to
+          channel&rdquo;, and the IDs are in the copied URL.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function ProviderBox({

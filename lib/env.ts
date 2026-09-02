@@ -22,6 +22,17 @@ export const envSchema = z.object({
   SLACK_CLIENT_ID: z.string().optional(),
   SLACK_CLIENT_SECRET: z.string().optional(),
   SLACK_REDIRECT_URI: z.url().optional(),
+  // Optional: Microsoft integrations (Outlook Mail, Teams, Outlook
+  // Calendar) — one Azure AD app registration backs all three (shared
+  // client id/secret, like one Google Cloud project backs Gmail), but each
+  // product calls back to its own route path
+  // (/api/integrations/{outlook,teams,outlook-calendar}/callback), so each
+  // needs its own registered redirect URI.
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_OUTLOOK_REDIRECT_URI: z.url().optional(),
+  MICROSOFT_TEAMS_REDIRECT_URI: z.url().optional(),
+  MICROSOFT_CALENDAR_REDIRECT_URI: z.url().optional(),
   // Required: every page/action resolves org context through Clerk now
   // (lib/organisations/current-organisation.ts) — there's no working app
   // without these, unlike the opt-in Gmail vars above.

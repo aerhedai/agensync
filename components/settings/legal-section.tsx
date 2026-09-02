@@ -118,15 +118,16 @@ export function DeleteAccountDialog() {
 
   return (
     <Dialog>
-      <DialogTrigger render={<Button variant="destructive">Delete my account</Button>} />
+      <DialogTrigger
+        render={<Button variant="destructive">Delete my account</Button>}
+      />
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Delete your account?</DialogTitle>
           <DialogDescription>
             This permanently deletes your personal sign-in and removes your
             access to this organisation. It does not delete the organisation
-            itself or its data — an owner can still see everything you did
-            here.
+            itself or its data — an owner can still see everything you did here.
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="flex flex-col gap-3">
@@ -146,7 +147,13 @@ export function DeleteAccountDialog() {
             />
           </div>
           <DialogFooter>
-            <DialogClose render={<Button type="button" variant="outline">Cancel</Button>} />
+            <DialogClose
+              render={
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              }
+            />
             <ConfirmDeleteButton
               label="Delete my account"
               pendingLabel="Deleting…"
@@ -202,7 +209,13 @@ export function DeleteOrganisationDialog({
             />
           </div>
           <DialogFooter>
-            <DialogClose render={<Button type="button" variant="outline">Cancel</Button>} />
+            <DialogClose
+              render={
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              }
+            />
             <ConfirmDeleteButton
               label="Delete organisation"
               pendingLabel="Deleting…"

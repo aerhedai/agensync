@@ -295,8 +295,15 @@ function IntegrationCard({
         <div className="flex flex-wrap gap-2">
           {isConnected ? (
             <>
-              <ConfigureDialog entry={entry} accounts={accounts} baseUrl={baseUrl} />
-              <DeleteIntegrationDialog entry={entry} accountCount={accounts.length} />
+              <ConfigureDialog
+                entry={entry}
+                accounts={accounts}
+                baseUrl={baseUrl}
+              />
+              <DeleteIntegrationDialog
+                entry={entry}
+                accountCount={accounts.length}
+              />
             </>
           ) : (
             <AddIntegrationDialog entry={entry} baseUrl={baseUrl} />

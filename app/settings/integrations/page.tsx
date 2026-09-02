@@ -48,7 +48,9 @@ export default async function IntegrationsSettingsPage({
 
       <IntegrationsSection
         accountsByProvider={accountsByProvider}
-        connectedProvider={typeof connected === "string" ? connected : undefined}
+        connectedProvider={
+          typeof connected === "string" ? connected : undefined
+        }
         errorMessage={
           typeof error === "string"
             ? (() => {

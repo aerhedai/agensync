@@ -1,8 +1,6 @@
 import { SettingsNav } from "@/components/settings/settings-nav";
 
-export default function SettingsLayout({
-  children,
-}: LayoutProps<"/settings">) {
+export default function SettingsLayout({ children }: LayoutProps<"/settings">) {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)]">
       <aside className="w-56 shrink-0 border-r border-border p-4">

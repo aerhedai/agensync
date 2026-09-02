@@ -57,7 +57,10 @@ export async function GET(
   }
   if (!code || !state || state !== expectedState) {
     return NextResponse.redirect(
-      new URL(`/settings/integrations?error=${provider}:invalid_state`, baseUrl),
+      new URL(
+        `/settings/integrations?error=${provider}:invalid_state`,
+        baseUrl,
+      ),
     );
   }
 

@@ -16,7 +16,10 @@ import { prisma } from "@/lib/db/prisma";
 // at a clerkUserId that no longer resolves. Acceptable for V1; a real
 // cross-org cleanup would mean querying across organisations, which the
 // rest of this codebase deliberately never does (CLAUDE.md §22).
-export async function deleteMyAccount(localUserId: string, clerkUserId: string) {
+export async function deleteMyAccount(
+  localUserId: string,
+  clerkUserId: string,
+) {
   await prisma.approval.updateMany({
     where: { approverId: localUserId },
     data: { approverId: null },

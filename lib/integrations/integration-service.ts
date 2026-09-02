@@ -100,7 +100,9 @@ export async function disconnectAllAccounts(
 ) {
   const accounts = await listIntegrationsByProvider(organisationId, provider);
   await Promise.all(
-    accounts.map((account) => disconnectIntegration(organisationId, account.id)),
+    accounts.map((account) =>
+      disconnectIntegration(organisationId, account.id),
+    ),
   );
 }
 

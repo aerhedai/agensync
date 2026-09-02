@@ -62,7 +62,8 @@ export async function listUnreadInboxMessages(
 
 interface GmailPayloadPart {
   mimeType: string;
-  body?: { data?: string };
+  filename?: string;
+  body?: { data?: string; attachmentId?: string; size?: number };
   parts?: GmailPayloadPart[];
 }
 
@@ -81,6 +82,34 @@ function extractPlainTextBody(payload: GmailPayloadPart): string {
   return "";
 }
 
+export interface GmailAttachmentRef {
+  filename: string;
+  mimeType: string;
+  attachmentId: string;
+  size: number;
+}
+
+// A file part has both a non-empty filename and an attachmentId (its
+// content isn't inlined — a second call is needed to fetch the bytes,
+// unlike Outlook's attachments endpoint which includes them directly).
+function collectAttachmentRefs(
+  payload: GmailPayloadPart,
+): GmailAttachmentRef[] {
+  const refs: GmailAttachmentRef[] = [];
+  if (payload.filename && payload.body?.attachmentId) {
+    refs.push({
+      filename: payload.filename,
+      mimeType: payload.mimeType,
+      attachmentId: payload.body.attachmentId,
+      size: payload.body.size ?? 0,
+    });
+  }
+  for (const part of payload.parts ?? []) {
+    refs.push(...collectAttachmentRefs(part));
+  }
+  return refs;
+}
+
 function headerValue(
   headers: { name: string; value: string }[],
   name: string,
@@ -96,6 +125,7 @@ export interface GmailMessage {
   from: string;
   subject: string;
   body: string;
+  attachments: GmailAttachmentRef[];
 }
 
 export async function getGmailMessage(
@@ -116,7 +146,26 @@ export async function getGmailMessage(
     from: headerValue(data.payload.headers, "From"),
     subject: headerValue(data.payload.headers, "Subject"),
     body: extractPlainTextBody(data.payload).trim(),
+    attachments: collectAttachmentRefs(data.payload),
   };
+}
+
+// A second call, deliberately not fetched eagerly alongside the message —
+// most inbound messages have no attachments, and the ones that do may
+// have several; fetching bytes only for the specific attachments a
+// pipeline actually decides to keep avoids downloading content that's
+// never used.
+export async function getGmailAttachmentContent(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Buffer> {
+  const response = await gmailFetch(
+    accessToken,
+    `/messages/${messageId}/attachments/${attachmentId}`,
+  );
+  const data = (await response.json()) as { data: string };
+  return Buffer.from(data.data, "base64url");
 }
 
 export async function markGmailMessageRead(
@@ -134,20 +183,55 @@ function encodeMimeMessage(params: {
   to: string;
   subject: string;
   body: string;
+  attachments?: { filename: string; mimeType: string; content: Buffer }[];
 }): string {
-  const message = [
+  if (!params.attachments || params.attachments.length === 0) {
+    const message = [
+      `To: ${params.to}`,
+      `Subject: ${params.subject}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      params.body,
+    ].join("\r\n");
+    return Buffer.from(message).toString("base64url");
+  }
+
+  const boundary = `agensync_${Date.now()}`;
+  const lines = [
     `To: ${params.to}`,
     `Subject: ${params.subject}`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     "Content-Type: text/plain; charset=utf-8",
     "",
     params.body,
-  ].join("\r\n");
-  return Buffer.from(message).toString("base64url");
+    "",
+  ];
+  for (const attachment of params.attachments) {
+    lines.push(
+      `--${boundary}`,
+      `Content-Type: ${attachment.mimeType}; name="${attachment.filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${attachment.filename}"`,
+      "",
+      attachment.content.toString("base64"),
+      "",
+    );
+  }
+  lines.push(`--${boundary}--`);
+
+  return Buffer.from(lines.join("\r\n")).toString("base64url");
 }
 
 export async function sendGmailMessage(
   accessToken: string,
-  params: { to: string; subject: string; body: string },
+  params: {
+    to: string;
+    subject: string;
+    body: string;
+    attachments?: { filename: string; mimeType: string; content: Buffer }[];
+  },
 ): Promise<void> {
   await gmailFetch(accessToken, "/messages/send", {
     method: "POST",

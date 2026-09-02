@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import PizZip from "pizzip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { prisma } from "@/lib/db/prisma";
@@ -82,7 +83,7 @@ describe("MCP tool server", () => {
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
-  it("lists all ten tools", async () => {
+  it("lists all sixteen tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
@@ -91,12 +92,18 @@ describe("MCP tool server", () => {
       "check_calendar_availability",
       "check_inventory",
       "create_calendar_event",
+      "create_custom_entity_record",
+      "create_storage_folder",
+      "find_custom_entity_record",
       "find_customer",
       "find_product",
       "notify_slack",
       "notify_teams",
+      "populate_document_template",
+      "save_storage_file",
       "search_custom_entity",
       "send_email",
+      "update_custom_entity_record",
     ]);
   });
 
@@ -477,5 +484,351 @@ describe("MCP tool server", () => {
         ),
       },
     ]);
+  });
+
+  it("find_custom_entity_record matches an exact field value, not a substring", async () => {
+    const found = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        field: "tenant",
+        value: "Jordan Reyes",
+      },
+    });
+    expect(found.structuredContent).toMatchObject({
+      found: true,
+      record: { data: { tenant: "Jordan Reyes" } },
+    });
+
+    const notFound = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: { entityType: "Property", field: "tenant", value: "Jordan" },
+    });
+    expect(notFound.structuredContent).toEqual({ found: false, record: null });
+  });
+
+  it("create_custom_entity_record creates a new record with the given fields", async () => {
+    const result = await client.callTool({
+      name: "create_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        data: { address: "9 Oak Lane", tenant: "Sam Okafor" },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      record: { data: { address: "9 Oak Lane", tenant: "Sam Okafor" } },
+    });
+
+    const refetch = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        field: "tenant",
+        value: "Sam Okafor",
+      },
+    });
+    expect(refetch.structuredContent).toMatchObject({ found: true });
+  });
+
+  it("update_custom_entity_record merges fields, leaving others untouched", async () => {
+    const existing = await client.callTool({
+      name: "find_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        field: "tenant",
+        value: "Jordan Reyes",
+      },
+    });
+    const recordId = (existing.structuredContent as { record: { id: string } })
+      .record.id;
+
+    const result = await client.callTool({
+      name: "update_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        recordId,
+        data: { status: "Vacated" },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      record: {
+        data: {
+          address: "14 Birch Road",
+          tenant: "Jordan Reyes",
+          status: "Vacated",
+        },
+      },
+    });
+  });
+
+  it("update_custom_entity_record errors clearly for a record id that doesn't exist", async () => {
+    const result = await client.callTool({
+      name: "update_custom_entity_record",
+      arguments: {
+        entityType: "Property",
+        recordId: "nonexistent-id",
+        data: { status: "Vacated" },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining('No record with id "nonexistent-id"'),
+      },
+    ]);
+  });
+
+  it("create_storage_folder reports a tool error when the storage provider isn't connected", async () => {
+    const result = await client.callTool({
+      name: "create_storage_folder",
+      arguments: { provider: "google-drive", path: ["1042"] },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining("Google Drive is not connected"),
+      },
+    ]);
+  });
+
+  it("create_storage_folder reports a clear error when siteName is missing for sharepoint", async () => {
+    const result = await client.callTool({
+      name: "create_storage_folder",
+      arguments: { provider: "sharepoint", path: ["1042"] },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      { type: "text", text: expect.stringContaining("siteName is required") },
+    ]);
+  });
+
+  it("save_storage_file reports a tool error when the storage provider isn't connected", async () => {
+    const result = await client.callTool({
+      name: "save_storage_file",
+      arguments: {
+        provider: "google-drive",
+        path: ["1042", "Client correspondence"],
+        filename: "latest.txt",
+        mimeType: "text/plain",
+        contentBase64: Buffer.from("hello").toString("base64"),
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining("Google Drive is not connected"),
+      },
+    ]);
+  });
+
+  it("populate_document_template reports a tool error when the storage provider isn't connected", async () => {
+    const result = await client.callTool({
+      name: "populate_document_template",
+      arguments: {
+        provider: "google-drive",
+        templatePath: ["Templates", "quote-template.docx"],
+        outputPath: ["1042", "Quotation"],
+        outputFilename: "quote-final.docx",
+        data: { customerName: "Customer ABC" },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining("Google Drive is not connected"),
+      },
+    ]);
+  });
+
+  it("populate_document_template downloads a real template, fills its {field} placeholders, and uploads the result", async () => {
+    await integrationService.connectOAuthAccount(
+      organisationId,
+      "google-drive",
+      {
+        accountName: "drive@acme.test",
+        config: {},
+        credentials: {
+          accessToken: "drive-token",
+          refreshToken: "drive-refresh",
+        },
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    // A minimal-but-real .docx: docxtemplater only requires
+    // [Content_Types].xml, _rels/.rels, and word/document.xml to render —
+    // confirmed via a disposable scratch script before writing this test.
+    const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Quote for {customerName}: {amount}</w:t></w:r></w:p>
+  </w:body>
+</w:document>`;
+    const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+    const templateZip = new PizZip();
+    templateZip.file("[Content_Types].xml", contentTypesXml);
+    templateZip.file("_rels/.rels", relsXml);
+    templateZip.file("word/document.xml", documentXml);
+    const templateBuffer = templateZip.generate({
+      type: "nodebuffer",
+    }) as Buffer;
+
+    let uploadedBody: Buffer | undefined;
+    let folderCreations = 0;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const urlStr = String(url);
+      const decoded = decodeURIComponent(urlStr).replace(/\+/g, " ");
+
+      if (decoded.includes("alt=media")) {
+        return new Response(new Uint8Array(templateBuffer), { status: 200 });
+      }
+      if (urlStr.includes("/upload/drive/v3/files")) {
+        uploadedBody = Buffer.from(init?.body as Buffer);
+        return new Response(JSON.stringify({ id: "output-file-id" }), {
+          status: 200,
+        });
+      }
+      if (method === "POST") {
+        folderCreations += 1;
+        return new Response(
+          JSON.stringify({ id: `created-folder-${folderCreations}` }),
+          { status: 200 },
+        );
+      }
+      if (decoded.includes("mimeType!=")) {
+        return new Response(
+          JSON.stringify({ files: [{ id: "template-file-id" }] }),
+          { status: 200 },
+        );
+      }
+      if (decoded.includes("name='Templates'")) {
+        return new Response(
+          JSON.stringify({ files: [{ id: "templates-folder-id" }] }),
+          { status: 200 },
+        );
+      }
+      // The output path's folders don't exist yet — ensureFolderPath must
+      // create them, proving this test isn't accidentally reusing an
+      // existing folder that happened to already contain the right file.
+      return new Response(JSON.stringify({ files: [] }), { status: 200 });
+    });
+
+    const result = await client.callTool({
+      name: "populate_document_template",
+      arguments: {
+        provider: "google-drive",
+        templatePath: ["Templates", "quote-template.docx"],
+        outputPath: ["1042", "Quotation"],
+        outputFilename: "quote-final.docx",
+        data: { customerName: "Customer ABC", amount: "£7,500" },
+      },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({ fileId: "output-file-id" });
+    expect(folderCreations).toBe(2); // "1042", then "Quotation" inside it
+    if (!uploadedBody) {
+      throw new Error("Expected the upload endpoint to have been called.");
+    }
+    const renderedZip = new PizZip(uploadedBody);
+    const renderedXml = renderedZip.file("word/document.xml")?.asText();
+    expect(renderedXml).toContain("Customer ABC");
+    expect(renderedXml).toContain("£7,500");
+    expect(renderedXml).not.toContain("{customerName}");
+  });
+
+  it("send_email resolves an attachment reference from connected storage and includes it in the outbound message", async () => {
+    await integrationService.connectOAuthAccount(
+      organisationId,
+      "google-drive",
+      {
+        accountName: "drive@acme.test",
+        config: {},
+        credentials: {
+          accessToken: "drive-token",
+          refreshToken: "drive-refresh",
+        },
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+    await integrationService.connectGmailAccount(
+      organisationId,
+      "sales@acme.test",
+      {
+        accessToken: "gmail-token",
+        refreshToken: "gmail-refresh",
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    let sentRawMessage = "";
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const urlStr = String(url);
+      if (urlStr.includes("gmail.googleapis.com")) {
+        const body = JSON.parse(init?.body as string) as { raw: string };
+        sentRawMessage = Buffer.from(body.raw, "base64url").toString("utf-8");
+        return new Response(JSON.stringify({ id: "sent-1" }), { status: 200 });
+      }
+      const decoded = decodeURIComponent(urlStr).replace(/\+/g, " ");
+      if (decoded.includes("alt=media")) {
+        return new Response("quote pdf bytes", { status: 200 });
+      }
+      if (decoded.includes("mimeType!=")) {
+        return new Response(JSON.stringify({ files: [{ id: "file-1" }] }), {
+          status: 200,
+        });
+      }
+      // Every folder segment in the attachment's path is found (this test
+      // is about attachment resolution, not folder creation).
+      return new Response(JSON.stringify({ files: [{ id: "folder-x" }] }), {
+        status: 200,
+      });
+    });
+
+    const result = await client.callTool({
+      name: "send_email",
+      arguments: {
+        to: "buyer@customer-abc.test",
+        subject: "Your quote",
+        body: "Please find the quote attached.",
+        attachments: [
+          {
+            provider: "google-drive",
+            path: ["1042", "Quotation", "quote-final.pdf"],
+            mimeType: "application/pdf",
+          },
+        ],
+      },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(sentRawMessage).toContain("Content-Type: multipart/mixed");
+    expect(sentRawMessage).toContain('filename="quote-final.pdf"');
+    expect(sentRawMessage).toContain(
+      Buffer.from("quote pdf bytes").toString("base64"),
+    );
   });
 });

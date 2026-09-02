@@ -32,3 +32,24 @@ export function createEntityType(
     data: { ...input, organisationId },
   });
 }
+
+// updateMany (not update) even though id is already globally unique — the
+// same org-scoping safety idiom as integration-repository.ts's
+// deleteIntegration: a cross-org id can never slip through, and the
+// {count} result tells the caller whether it actually matched anything.
+export function updateEntityType(
+  organisationId: string,
+  id: string,
+  input: EntityTypeInput,
+) {
+  return prisma.customEntityType.updateMany({
+    where: { id, organisationId },
+    data: input,
+  });
+}
+
+// Cascades to the type's records too — see schema.prisma's
+// onDelete: Cascade comment on CustomEntityRecord.entityType.
+export function deleteEntityType(organisationId: string, id: string) {
+  return prisma.customEntityType.deleteMany({ where: { id, organisationId } });
+}

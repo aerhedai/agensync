@@ -5,18 +5,19 @@ import { useFormStatus } from "react-dom";
 
 import {
   createRecordAction,
+  updateRecordAction,
   type RecordFormState,
-} from "@/app/catalog/entities/[id]/actions";
+} from "@/app/(app)/catalog/entities/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { EntityFieldConfig } from "@/lib/entities/schemas";
 
-function SubmitButton() {
+function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending}>
-      {pending ? "Saving…" : "Add record"}
+      {pending ? "Saving…" : label}
     </Button>
   );
 }
@@ -24,12 +25,18 @@ function SubmitButton() {
 export function EntityRecordForm({
   entityTypeId,
   fields,
+  editing,
 }: {
   entityTypeId: string;
   fields: EntityFieldConfig[];
+  // Omitted: create mode. Present: edit mode, pre-filled and bound to
+  // updateRecordAction for this record's id.
+  editing?: { recordId: string; data: Record<string, unknown> };
 }) {
   const [state, formAction] = useActionState<RecordFormState, FormData>(
-    createRecordAction.bind(null, entityTypeId),
+    editing
+      ? updateRecordAction.bind(null, entityTypeId, editing.recordId)
+      : createRecordAction.bind(null, entityTypeId),
     {},
   );
 
@@ -44,6 +51,11 @@ export function EntityRecordForm({
             id={field.name}
             name={field.name}
             placeholder={field.description}
+            defaultValue={
+              editing?.data[field.name] !== undefined
+                ? String(editing.data[field.name])
+                : undefined
+            }
             required
           />
           {state.fieldErrors?.[field.name]?.[0] && (
@@ -54,7 +66,7 @@ export function EntityRecordForm({
         </div>
       ))}
 
-      <SubmitButton />
+      <SubmitButton label={editing ? "Save changes" : "Add record"} />
     </form>
   );
 }

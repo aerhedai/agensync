@@ -7,13 +7,30 @@ import { dispatchInboundMessage } from "@/lib/routing/dispatch";
 
 // CLAUDE.md #19 — never trust a webhook payload without validation. The
 // caller (whatever external system is configured to POST here) controls
-// this shape; it's documented in the "Add webhook account" confirmation
-// UI, not inferred or guessed at.
-const webhookPayloadSchema = z.object({
+// this shape; the email-shaped one is documented in the "Add webhook
+// account" confirmation UI, not inferred or guessed at.
+const emailShapedPayloadSchema = z.object({
   body: z.string().min(1),
   subject: z.string().optional(),
   senderEmail: z.email().optional(),
 });
+
+// Anything else — a structured signal from an external system (e.g. a
+// Power Automate flow posting {jobId, status, ...} when a tracked item
+// changes) that a HARNESS pipeline parses for itself. Deliberately
+// shape-agnostic here: this route has no way to know, and shouldn't need
+// to know, what fields matter to a given business's own pipeline —
+// keeping this generic is what lets any business wire up their own
+// signal shape without a code change here.
+const structuredPayloadSchema = z.record(z.string(), z.unknown());
+
+// Tried in this order — a payload with a valid `body` string keeps the
+// exact existing email-shaped behavior; anything else falls through to
+// the generic structured record.
+const webhookPayloadSchema = z.union([
+  emailShapedPayloadSchema,
+  structuredPayloadSchema,
+]);
 
 /**
  * The one inbound entry point for the webhook trigger — no session, no
@@ -70,16 +87,27 @@ export async function POST(
       { status: 400 },
     );
   }
-  const { body, subject, senderEmail } = parsed.data;
+  const isEmailShaped = typeof parsed.data.body === "string";
 
-  const input = subject ? `Subject: ${subject}\n\n${body}` : body;
+  const input = isEmailShaped
+    ? (() => {
+        const { body, subject } = parsed.data as z.infer<
+          typeof emailShapedPayloadSchema
+        >;
+        return subject ? `Subject: ${subject}\n\n${body}` : body;
+      })()
+    : JSON.stringify(parsed.data);
+  const senderEmail = isEmailShaped
+    ? ((parsed.data as z.infer<typeof emailShapedPayloadSchema>).senderEmail ??
+      null)
+    : null;
 
   const result = await dispatchInboundMessage(
     verified.organisationId,
     "WEBHOOK",
     input,
     getAIProvider(),
-    senderEmail ?? null,
+    senderEmail,
     integrationId,
   );
 

@@ -105,6 +105,13 @@ model Organisation {
   // supported. What the app actually accepts is constrained at the
   // application layer instead (lib/currency/currency-symbols.ts).
   currency   String   @default("GBP")
+  // Set by the business itself in Settings — this app has no legal team of
+  // its own to author real Terms of Service/Privacy Policy text, so these
+  // are just outbound links to wherever the business hosts its own,
+  // surfaced consistently in the product rather than fabricated content.
+  // Null means "not set yet."
+  termsUrl   String?
+  privacyUrl String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -197,7 +204,11 @@ model CustomEntityRecord {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  entityType   CustomEntityType @relation(fields: [entityTypeId], references: [id])
+  // Cascade: deleting a business-defined entity type (e.g. no longer
+  // tracking "Property") deletes its records with it — a business
+  // removing a catalog type means removing its entries, not leaving them
+  // orphaned with no parent type to display or validate them against.
+  entityType   CustomEntityType @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
   organisation Organisation     @relation(fields: [organisationId], references: [id])
 
   @@index([entityTypeId])
@@ -293,6 +304,16 @@ model Agent {
   // provider; it only matters the moment two categories need to use
   // *different* accounts of the same provider.
   actionIntegrationId  String?
+  // Generic key-value config bag for pipeline-specific settings that don't
+  // yet warrant their own named column — same reasoning as
+  // Organisation.currency/Integration.provider being plain strings: a
+  // narrowly-named column per future pipeline (the way extractionFields/
+  // guardrailKeywords/replySubjectTemplate each are) would mean a
+  // migration every time a *new* pipeline needs its own settings shape.
+  // Each pipeline defines and validates its own shape for this in
+  // application code (e.g. entity-status-signal-pipeline.ts), not the
+  // database. Empty object means "not configured."
+  pipelineConfig       Json               @default("{}")
 
   organisation        Organisation    @relation(fields: [organisationId], references: [id])
   actionIntegration   Integration?    @relation(fields: [actionIntegrationId], references: [id])
@@ -314,7 +335,9 @@ model AgentTool {
   agentId  String
   toolName String
 
-  agent Agent @relation(fields: [agentId], references: [id])
+  // Cascade: a tool grant has no independent value once its agent is
+  // gone — unlike AgentRun below, deleting one destroys no audit trail.
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([agentId, toolName])
   @@index([agentId])
@@ -380,7 +403,9 @@ model WorkflowAgent {
   role       WorkflowAgentRole
 
   workflow Workflow @relation(fields: [workflowId], references: [id])
-  agent    Agent    @relation(fields: [agentId], references: [id])
+  // Cascade: same reasoning as AgentTool.agent — a workflow membership row
+  // has no independent value once the agent it points at is gone.
+  agent    Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([workflowId, agentId])
   @@index([workflowId])

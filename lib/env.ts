@@ -16,6 +16,11 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.url().optional(),
+  // Google Drive shares the client id/secret above (one Google Cloud
+  // project backs both Gmail and Drive) but calls back to its own route
+  // path, so it needs its own redirect URI — same shape as the Microsoft
+  // vars below.
+  GOOGLE_DRIVE_REDIRECT_URI: z.url().optional(),
   // Optional: Slack integration (notify_slack), same treatment as the
   // Google vars above — the rest of the app runs fine without these, only
   // /settings' "Add Slack account" flow needs them.
@@ -33,6 +38,13 @@ export const envSchema = z.object({
   MICROSOFT_OUTLOOK_REDIRECT_URI: z.url().optional(),
   MICROSOFT_TEAMS_REDIRECT_URI: z.url().optional(),
   MICROSOFT_CALENDAR_REDIRECT_URI: z.url().optional(),
+  MICROSOFT_SHAREPOINT_REDIRECT_URI: z.url().optional(),
+  // Optional: used to build absolute links back into the app (e.g. a
+  // notify_teams message linking to /approvals) — nothing breaks without
+  // it, the link is just omitted. Not derived from the request the way
+  // OAuth callback routes derive their own base URL, since a pipeline has
+  // no request to derive it from.
+  NEXT_PUBLIC_APP_URL: z.url().optional(),
   // Required: every page/action resolves org context through Clerk now
   // (lib/organisations/current-organisation.ts) — there's no working app
   // without these, unlike the opt-in Gmail vars above.

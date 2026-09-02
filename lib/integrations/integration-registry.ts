@@ -54,6 +54,20 @@ export const INTEGRATION_REGISTRY = [
       "Get a unique URL and secret that anything able to send a JSON POST (a form backend, Zapier, another internal system) can use to trigger a workflow.",
     connectionMode: "manual",
   },
+  {
+    provider: "google-drive",
+    label: "Google Drive",
+    description:
+      "Connect a Google Drive so agents can archive inbound email and attachments into a folder structure.",
+    connectionMode: "oauth",
+  },
+  {
+    provider: "sharepoint",
+    label: "SharePoint",
+    description:
+      "Connect a SharePoint site so agents can archive inbound email and attachments into a folder structure — the SharePoint alternative to Google Drive.",
+    connectionMode: "oauth",
+  },
 ] as const;
 
 export type IntegrationProviderName =

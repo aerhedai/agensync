@@ -570,6 +570,185 @@ describe("multi-account integrations", () => {
     ).rejects.toThrow(/not an outlook calendar account/i);
   });
 
+  function connectGoogleDriveAccount(email: string) {
+    return integrationService.connectOAuthAccount(
+      organisationId,
+      "google-drive",
+      {
+        accountName: email,
+        config: { email },
+        credentials: {
+          accessToken: `access-${email}`,
+          refreshToken: `refresh-${email}`,
+        },
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+  }
+
+  it("connecting two different Google Drive accounts creates two separate accounts", async () => {
+    await connectGoogleDriveAccount("sales@acme.test");
+    await connectGoogleDriveAccount("support@acme.test");
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "google-drive",
+    );
+    expect(accounts.map((a) => a.name).sort()).toEqual([
+      "sales@acme.test",
+      "support@acme.test",
+    ]);
+  });
+
+  it("reconnecting the same Google Drive account updates it rather than duplicating it", async () => {
+    const first = await connectGoogleDriveAccount("ops@acme.test");
+    const second = await connectGoogleDriveAccount("ops@acme.test");
+
+    expect(second.id).toBe(first.id);
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "google-drive",
+    );
+    expect(accounts).toHaveLength(1);
+  });
+
+  it("getValidGoogleDriveAccessToken defaults to the earliest-connected account and can be pinned", async () => {
+    await connectGoogleDriveAccount("first@acme.test");
+    const second = await connectGoogleDriveAccount("second@acme.test");
+
+    const defaultToken =
+      await integrationService.getValidGoogleDriveAccessToken(organisationId);
+    const pinnedToken = await integrationService.getValidGoogleDriveAccessToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("access-first@acme.test");
+    expect(pinnedToken).toBe("access-second@acme.test");
+  });
+
+  it("getValidGoogleDriveAccessToken rejects a pinned id from the wrong provider", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not Drive",
+      );
+
+    await expect(
+      integrationService.getValidGoogleDriveAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not a google drive account/i);
+  });
+
+  it("throws a clear error when no Google Drive account is connected", async () => {
+    await expect(
+      integrationService.getValidGoogleDriveAccessToken(organisationId),
+    ).rejects.toThrow(/google drive is not connected/i);
+  });
+
+  function connectSharePointAccount(email: string) {
+    return integrationService.connectOAuthAccount(
+      organisationId,
+      "sharepoint",
+      {
+        accountName: email,
+        config: { email },
+        credentials: {
+          accessToken: `access-${email}`,
+          refreshToken: `refresh-${email}`,
+        },
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+  }
+
+  it("connecting two different SharePoint accounts creates two separate accounts", async () => {
+    await connectSharePointAccount("sales@acme.test");
+    await connectSharePointAccount("support@acme.test");
+
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "sharepoint",
+    );
+    expect(accounts.map((a) => a.name).sort()).toEqual([
+      "sales@acme.test",
+      "support@acme.test",
+    ]);
+  });
+
+  it("reconnecting the same SharePoint account updates it rather than duplicating it", async () => {
+    const first = await connectSharePointAccount("ops@acme.test");
+    const second = await connectSharePointAccount("ops@acme.test");
+
+    expect(second.id).toBe(first.id);
+    const accounts = await integrationService.listIntegrationsByProvider(
+      organisationId,
+      "sharepoint",
+    );
+    expect(accounts).toHaveLength(1);
+  });
+
+  it("getValidSharePointAccessToken defaults to the earliest-connected account and can be pinned", async () => {
+    await connectSharePointAccount("first@acme.test");
+    const second = await connectSharePointAccount("second@acme.test");
+
+    const defaultToken =
+      await integrationService.getValidSharePointAccessToken(organisationId);
+    const pinnedToken = await integrationService.getValidSharePointAccessToken(
+      organisationId,
+      second.id,
+    );
+    expect(defaultToken).toBe("access-first@acme.test");
+    expect(pinnedToken).toBe("access-second@acme.test");
+  });
+
+  it("getValidSharePointAccessToken rejects a pinned id from the wrong provider", async () => {
+    const { integration: webhookAccount } =
+      await integrationService.connectWebhookAccount(
+        organisationId,
+        "Not SharePoint",
+      );
+
+    await expect(
+      integrationService.getValidSharePointAccessToken(
+        organisationId,
+        webhookAccount.id,
+      ),
+    ).rejects.toThrow(/not a sharepoint account/i);
+  });
+
+  it("throws a clear error when no SharePoint account is connected", async () => {
+    await expect(
+      integrationService.getValidSharePointAccessToken(organisationId),
+    ).rejects.toThrow(/sharepoint is not connected/i);
+  });
+
+  it("Google Drive and SharePoint credentials round-trip through encryption correctly — never stored as plaintext", async () => {
+    await connectGoogleDriveAccount("crypto-drive@acme.test");
+    await connectSharePointAccount("crypto-sharepoint@acme.test");
+
+    const rawDrive = await prisma.integration.findFirstOrThrow({
+      where: { organisationId, provider: "google-drive" },
+    });
+    const rawSharePoint = await prisma.integration.findFirstOrThrow({
+      where: { organisationId, provider: "sharepoint" },
+    });
+    expect(rawDrive.credentials).not.toContain("access-crypto-drive@acme.test");
+    expect(rawDrive.credentials).toMatch(/^v1:/);
+    expect(rawSharePoint.credentials).not.toContain(
+      "access-crypto-sharepoint@acme.test",
+    );
+    expect(rawSharePoint.credentials).toMatch(/^v1:/);
+
+    expect(
+      await integrationService.getValidGoogleDriveAccessToken(organisationId),
+    ).toBe("access-crypto-drive@acme.test");
+    expect(
+      await integrationService.getValidSharePointAccessToken(organisationId),
+    ).toBe("access-crypto-sharepoint@acme.test");
+  });
+
   describe("email-agnostic resolvers (Gmail + Outlook Mail)", () => {
     it("getDefaultEmailIntegration picks the earliest-connected across both providers, not Gmail-biased", async () => {
       // Outlook connected first, Gmail second — the Outlook account must

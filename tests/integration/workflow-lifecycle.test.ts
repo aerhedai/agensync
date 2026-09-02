@@ -177,7 +177,29 @@ describe("workflow lifecycle", () => {
         trigger: "EMAIL",
         triggerIntegrationId: webhookAccount.id,
       }),
-    ).rejects.toThrow(/must be bound to a gmail account/i);
+    ).rejects.toThrow(/must be bound to a gmail or outlook account/i);
+  });
+
+  it("accepts an EMAIL workflow bound to an Outlook account, not just Gmail", async () => {
+    const outlookAccount = await integrationService.connectOAuthAccount(
+      organisationId,
+      "outlook",
+      {
+        accountName: "sales@fswd.test",
+        config: {},
+        credentials: { accessToken: "a", refreshToken: "r" },
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    );
+
+    const workflow = await workflowService.createWorkflow(organisationId, {
+      name: "Outlook Bound",
+      description: "d",
+      trigger: "EMAIL",
+      triggerIntegrationId: outlookAccount.id,
+    });
+
+    expect(workflow.triggerIntegrationId).toBe(outlookAccount.id);
   });
 
   it("two workflows on the same trigger but different bound accounts can both be active at once", async () => {
@@ -289,5 +311,76 @@ describe("workflow lifecycle", () => {
     });
     expect(refreshedFirst.status).toBe("DRAFT");
     expect(refreshedSecond.status).toBe("ACTIVE");
+  });
+
+  it("removes a member's workflow role without touching the agent itself", async () => {
+    const workflow = await workflowService.createWorkflow(organisationId, {
+      name: "Removable Member",
+      description: "d",
+      trigger: "EMAIL",
+    });
+    await workflowService.addMember(
+      organisationId,
+      workflow.id,
+      handlerId,
+      "HANDLER",
+    );
+
+    const removed = await workflowService.removeMember(
+      organisationId,
+      workflow.id,
+      handlerId,
+    );
+
+    expect(removed).toBe(true);
+    const reloaded = await workflowService.getWorkflow(
+      organisationId,
+      workflow.id,
+    );
+    expect(reloaded?.members).toHaveLength(0);
+    const agentStillExists = await prisma.agent.findUnique({
+      where: { id: handlerId },
+    });
+    expect(agentStillExists).not.toBeNull();
+  });
+
+  it("does not remove a member from a workflow belonging to a different organisation", async () => {
+    const otherOrganisationId = "test-org-workflow-lifecycle-other";
+    await prisma.organisation.create({
+      data: {
+        id: otherOrganisationId,
+        clerkOrgId: otherOrganisationId,
+        name: "Other Org",
+      },
+    });
+
+    const workflow = await workflowService.createWorkflow(organisationId, {
+      name: "Cross-Org Guard",
+      description: "d",
+      trigger: "EMAIL",
+    });
+    await workflowService.addMember(
+      organisationId,
+      workflow.id,
+      handlerId,
+      "HANDLER",
+    );
+
+    const removed = await workflowService.removeMember(
+      otherOrganisationId,
+      workflow.id,
+      handlerId,
+    );
+
+    expect(removed).toBe(false);
+    const reloaded = await workflowService.getWorkflow(
+      organisationId,
+      workflow.id,
+    );
+    expect(reloaded?.members).toHaveLength(1);
+
+    await prisma.organisation.deleteMany({
+      where: { id: otherOrganisationId },
+    });
   });
 });

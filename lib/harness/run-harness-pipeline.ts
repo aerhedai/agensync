@@ -3,6 +3,7 @@ import type { AIProvider } from "@/lib/ai/provider";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import type { Agent } from "@/lib/generated/prisma/client";
 import { getPipeline } from "@/lib/harness/pipelines";
+import type { ResolvedAttachment } from "@/lib/harness/types";
 import { connectMcpClient } from "@/lib/mcp/client";
 import * as organisationRepository from "@/lib/organisations/organisation-repository";
 import * as runRepository from "@/lib/runs/run-repository";
@@ -19,6 +20,7 @@ export async function runHarnessPipeline(
   input: string,
   provider: AIProvider = getAIProvider(),
   senderEmail: string | null = null,
+  getAttachments?: () => Promise<ResolvedAttachment[]>,
 ): Promise<RunResult> {
   const run = await runRepository.createRun(
     agent.organisationId,
@@ -60,6 +62,7 @@ export async function runHarnessPipeline(
       agent,
       input,
       senderEmail,
+      getAttachments,
       mcpClient,
       provider,
       allowedTools,

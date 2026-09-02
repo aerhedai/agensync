@@ -1,4 +1,6 @@
 import { runAcknowledgeReplyPipeline } from "@/lib/harness/pipelines/acknowledge-reply-pipeline";
+import { runEntityCorrespondenceArchivePipeline } from "@/lib/harness/pipelines/entity-correspondence-archive-pipeline";
+import { runEntityStatusSignalPipeline } from "@/lib/harness/pipelines/entity-status-signal-pipeline";
 import { runQuotePipeline } from "@/lib/harness/pipelines/quote-pipeline";
 import type { Pipeline } from "@/lib/harness/types";
 
@@ -15,6 +17,8 @@ import type { Pipeline } from "@/lib/harness/types";
 const PIPELINES: Record<string, Pipeline> = {
   quote: runQuotePipeline,
   acknowledge_reply: runAcknowledgeReplyPipeline,
+  entity_status_signal: runEntityStatusSignalPipeline,
+  entity_correspondence_archive: runEntityCorrespondenceArchivePipeline,
 };
 
 export function getPipeline(pipelineKey: string | null): Pipeline | null {

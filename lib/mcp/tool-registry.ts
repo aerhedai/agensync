@@ -62,6 +62,42 @@ export const TOOL_REGISTRY = [
     description:
       "Look up a record in one of this business's own custom entity types (e.g. Property, Case).",
   },
+  {
+    name: "find_custom_entity_record",
+    label: "Find custom entity record",
+    description:
+      "Find a record in one of this business's own custom entity types by an exact field match.",
+  },
+  {
+    name: "create_custom_entity_record",
+    label: "Create custom entity record",
+    description:
+      "Create a new record in one of this business's own custom entity types.",
+  },
+  {
+    name: "update_custom_entity_record",
+    label: "Update custom entity record",
+    description:
+      "Update fields on an existing record in one of this business's own custom entity types.",
+  },
+  {
+    name: "create_storage_folder",
+    label: "Create storage folder",
+    description:
+      "Create (or reuse) a nested folder path in the business's connected Google Drive or SharePoint.",
+  },
+  {
+    name: "save_storage_file",
+    label: "Save storage file",
+    description:
+      "Save a file into the business's connected Google Drive or SharePoint, creating the folder path if needed.",
+  },
+  {
+    name: "populate_document_template",
+    label: "Populate document template",
+    description:
+      "Fill a business's .docx quote template with real data and save the result to their connected storage.",
+  },
 ] as const;
 
 export type ToolName = (typeof TOOL_REGISTRY)[number]["name"];

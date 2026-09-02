@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  downloadFile,
   ensureFolderPath,
+  resolveAndDownloadFile,
   resolveOrCreateFolder,
   uploadFile,
+  uploadOrReplaceFile,
 } from "@/lib/integrations/google-drive/client";
 
 afterEach(() => {
@@ -109,5 +112,153 @@ describe("uploadFile", () => {
     );
 
     expect(result.id).toBe("file-1");
+  });
+});
+
+describe("downloadFile", () => {
+  it("fetches the file's raw media content into a Buffer", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toContain("/files/file-1?alt=media");
+      return new Response("file bytes", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const content = await downloadFile("token", "file-1");
+
+    expect(content.toString("utf-8")).toBe("file bytes");
+  });
+});
+
+describe("resolveAndDownloadFile", () => {
+  it("walks the folder path then downloads the file at the end of it", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const decoded = decodeURIComponent(url).replace(/\+/g, " ");
+      if (decoded.includes("alt=media")) {
+        return new Response("template bytes", { status: 200 });
+      }
+      if (decoded.includes("mimeType!=")) {
+        return new Response(JSON.stringify({ files: [{ id: "file-1" }] }), {
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify({ files: [{ id: "folder-1" }] }), {
+        status: 200,
+      });
+    });
+
+    const content = await resolveAndDownloadFile("token", [
+      "Job 123",
+      "Quotation",
+      "quote-template.docx",
+    ]);
+
+    expect(content.toString("utf-8")).toBe("template bytes");
+  });
+
+  it("throws a clear error when a folder segment doesn't exist, without trying to create it", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ files: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      resolveAndDownloadFile("token", ["Missing Folder", "file.docx"]),
+    ).rejects.toThrow(/Folder "Missing Folder" was not found/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws a clear error when the file itself doesn't exist in an otherwise valid folder", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const decoded = decodeURIComponent(url).replace(/\+/g, " ");
+      if (decoded.includes("mimeType!=")) {
+        return new Response(JSON.stringify({ files: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ files: [{ id: "folder-1" }] }), {
+        status: 200,
+      });
+    });
+
+    await expect(
+      resolveAndDownloadFile("token", ["Job 123", "missing.docx"]),
+    ).rejects.toThrow(/File "Job 123\/missing\.docx" was not found/);
+  });
+});
+
+describe("uploadOrReplaceFile", () => {
+  it("creates a new file when replace is false, without checking for an existing one", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toContain("uploadType=multipart");
+      expect(init?.method).toBe("POST");
+      return new Response(JSON.stringify({ id: "new-file" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await uploadOrReplaceFile(
+      "token",
+      "folder-1",
+      "correspondence.txt",
+      "text/plain",
+      Buffer.from("hello"),
+      false,
+    );
+
+    expect(result.id).toBe("new-file");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates an existing same-named file's content in place when replace is true", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push(method);
+      if (method === "GET") {
+        return new Response(
+          JSON.stringify({ files: [{ id: "existing-file" }] }),
+          { status: 200 },
+        );
+      }
+      expect(url).toContain("/files/existing-file?uploadType=media");
+      expect(method).toBe("PATCH");
+      return new Response(JSON.stringify({ id: "existing-file" }), {
+        status: 200,
+      });
+    });
+
+    const result = await uploadOrReplaceFile(
+      "token",
+      "folder-1",
+      "correspondence.txt",
+      "text/plain",
+      Buffer.from("updated"),
+      true,
+    );
+
+    expect(result.id).toBe("existing-file");
+    expect(calls).toEqual(["GET", "PATCH"]);
+  });
+
+  it("falls back to creating a new file when replace is true but none exists yet", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push(method);
+      if (method === "GET") {
+        return new Response(JSON.stringify({ files: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "new-file" }), { status: 200 });
+    });
+
+    const result = await uploadOrReplaceFile(
+      "token",
+      "folder-1",
+      "correspondence.txt",
+      "text/plain",
+      Buffer.from("first"),
+      true,
+    );
+
+    expect(result.id).toBe("new-file");
+    expect(calls).toEqual(["GET", "POST"]);
   });
 });

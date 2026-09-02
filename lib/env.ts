@@ -39,6 +39,12 @@ export const envSchema = z.object({
   MICROSOFT_TEAMS_REDIRECT_URI: z.url().optional(),
   MICROSOFT_CALENDAR_REDIRECT_URI: z.url().optional(),
   MICROSOFT_SHAREPOINT_REDIRECT_URI: z.url().optional(),
+  // Optional: used to build absolute links back into the app (e.g. a
+  // notify_teams message linking to /approvals) — nothing breaks without
+  // it, the link is just omitted. Not derived from the request the way
+  // OAuth callback routes derive their own base URL, since a pipeline has
+  // no request to derive it from.
+  NEXT_PUBLIC_APP_URL: z.url().optional(),
   // Required: every page/action resolves org context through Clerk now
   // (lib/organisations/current-organisation.ts) — there's no working app
   // without these, unlike the opt-in Gmail vars above.

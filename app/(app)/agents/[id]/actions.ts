@@ -1,8 +1,10 @@
 "use server";
 
 import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 import * as agentService from "@/lib/agents/agent-service";
+import type { AgentStatus } from "@/lib/generated/prisma/client";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
 
@@ -28,4 +30,22 @@ export async function runAgentAction(
 
   const result = await runAgentByExecutionMode(agent, input.trim());
   redirect(`/runs/${result.runId}`);
+}
+
+// A workflow's dispatcher only ever routes to an ACTIVE handler
+// (lib/routing/dispatch.ts) — DRAFT is the default so a half-configured
+// agent can never receive real traffic by accident; this is the one place
+// that moves it out of DRAFT once it's ready.
+export async function updateAgentStatusAction(
+  agentId: string,
+  status: AgentStatus,
+) {
+  const organisation = await getCurrentOrganisation();
+  try {
+    await agentService.updateAgentStatus(organisation.id, agentId, status);
+  } catch {
+    notFound();
+  }
+  revalidatePath(`/agents/${agentId}`);
+  revalidatePath("/agents");
 }

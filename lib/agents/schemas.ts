@@ -10,7 +10,19 @@ import { TOOL_NAMES } from "@/lib/mcp/tool-registry";
 // option (lib/runtime/agent-runtime.ts) — not what a business reaches for
 // to add a new email category; "acknowledge_reply" is (see
 // lib/harness/pipelines/acknowledge-reply-pipeline.ts).
-const categoryTypeSchema = z.enum(["loop", "acknowledge_reply", "quote"]);
+// "entity_status_signal"/"entity_correspondence_archive": the two
+// structured, config-only pipelines (lib/harness/pipelines/) — a business
+// fills in their own pipelineConfig shape through
+// components/agents/entity-status-signal-fields.tsx /
+// entity-correspondence-archive-fields.tsx, no code change needed, same as
+// how "acknowledge_reply" already works through extractionFields.
+const categoryTypeSchema = z.enum([
+  "loop",
+  "acknowledge_reply",
+  "quote",
+  "entity_status_signal",
+  "entity_correspondence_archive",
+]);
 export type CategoryType = z.infer<typeof categoryTypeSchema>;
 
 export const agentInputSchema = z
@@ -53,6 +65,13 @@ export const agentInputSchema = z
       .transform((v) => (v.length > 0 ? v : null))
       .nullable()
       .default(null),
+    // "entity_status_signal"/"entity_correspondence_archive"-only. Shape
+    // deliberately not validated here — each pipeline owns and exports its
+    // own pipelineConfigSchema (lib/harness/pipelines/), validated against
+    // in app/(app)/agents/actions.ts once categoryType is known, so there's
+    // one authoritative schema per pipeline rather than a second,
+    // driftable copy of it in this file.
+    pipelineConfig: z.record(z.string(), z.unknown()).default({}),
   })
   .transform(({ categoryType, ...rest }) => ({
     ...rest,

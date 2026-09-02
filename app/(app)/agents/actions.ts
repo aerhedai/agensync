@@ -3,7 +3,11 @@
 import { redirect } from "next/navigation";
 
 import * as agentService from "@/lib/agents/agent-service";
-import { agentInputSchema } from "@/lib/agents/schemas";
+import {
+  parsePipelineConfigForm,
+  validatePipelineConfig,
+} from "@/lib/agents/pipeline-config-form";
+import { agentInputSchema, type CategoryType } from "@/lib/agents/schemas";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
 export type AgentFormState = {
@@ -44,18 +48,21 @@ function parseAgentForm(formData: FormData) {
     };
   });
 
+  const categoryType = formData.get("categoryType");
+
   return agentInputSchema.safeParse({
     name: formData.get("name"),
     description: formData.get("description"),
     instructions: formData.get("instructions"),
     model: formData.get("model"),
-    categoryType: formData.get("categoryType"),
+    categoryType,
     replySubjectTemplate: formData.get("replySubjectTemplate"),
     keywords: parseCommaSeparated(formData, "keywords"),
     toolNames: formData.getAll("toolNames"),
     extractionFields,
     guardrailKeywords: parseCommaSeparated(formData, "guardrailKeywords"),
     actionIntegrationId: formData.get("actionIntegrationId"),
+    pipelineConfig: parsePipelineConfigForm(categoryType, formData),
   });
 }
 
@@ -68,8 +75,19 @@ export async function createAgentAction(
     return { fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
+  const validated = validatePipelineConfig(
+    formData.get("categoryType") as CategoryType,
+    parsed.data.pipelineConfig,
+  );
+  if ("error" in validated) {
+    return { fieldErrors: { pipelineConfig: [validated.error] } };
+  }
+
   const organisation = await getCurrentOrganisation();
-  await agentService.createAgent(organisation.id, parsed.data);
+  await agentService.createAgent(organisation.id, {
+    ...parsed.data,
+    pipelineConfig: validated.config,
+  });
   redirect("/agents");
 }
 
@@ -83,9 +101,20 @@ export async function updateAgentAction(
     return { fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
+  const validated = validatePipelineConfig(
+    formData.get("categoryType") as CategoryType,
+    parsed.data.pipelineConfig,
+  );
+  if ("error" in validated) {
+    return { fieldErrors: { pipelineConfig: [validated.error] } };
+  }
+
   const organisation = await getCurrentOrganisation();
   try {
-    await agentService.updateAgent(organisation.id, agentId, parsed.data);
+    await agentService.updateAgent(organisation.id, agentId, {
+      ...parsed.data,
+      pipelineConfig: validated.config,
+    });
   } catch {
     return { error: "Agent not found." };
   }

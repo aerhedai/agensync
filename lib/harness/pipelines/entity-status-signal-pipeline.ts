@@ -45,7 +45,11 @@ const transitionSchema = z.object({
     .optional(),
 });
 
-const pipelineConfigSchema = z.object({
+// Exported so the Agent form (components/agents/entity-status-signal-fields.tsx)
+// validates a business's configuration against the exact same shape this
+// pipeline actually runs against — one source of truth, not a UI-side copy
+// that could drift from what's enforced at runtime.
+export const pipelineConfigSchema = z.object({
   // Which CustomEntityType this pipeline tracks, e.g. "Job".
   entityType: z.string().min(1),
   // Which field on that entity uniquely identifies a record, e.g. "jobId"
@@ -58,6 +62,8 @@ const pipelineConfigSchema = z.object({
   // transition needs to trigger anything.
   transitions: z.record(z.string(), transitionSchema),
 });
+
+export type EntityStatusSignalConfig = z.infer<typeof pipelineConfigSchema>;
 
 function interpolate(template: string, data: Record<string, unknown>): string {
   return template.replace(/\{(\w+)\}/g, (_match, key: string) => {

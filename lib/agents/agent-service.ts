@@ -1,6 +1,7 @@
 import * as agentRepository from "@/lib/agents/agent-repository";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import type { AgentInput } from "@/lib/agents/schemas";
+import type { AgentStatus } from "@/lib/generated/prisma/client";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 
 export function listAgents(organisationId: string) {
@@ -63,4 +64,19 @@ export async function updateAgent(
     throw new Error("Agent not found");
   }
   await agentToolRepository.setToolsForAgent(id, toolNames);
+}
+
+export async function updateAgentStatus(
+  organisationId: string,
+  id: string,
+  status: AgentStatus,
+) {
+  const result = await agentRepository.updateAgentStatus(
+    organisationId,
+    id,
+    status,
+  );
+  if (result.count === 0) {
+    throw new Error("Agent not found");
+  }
 }

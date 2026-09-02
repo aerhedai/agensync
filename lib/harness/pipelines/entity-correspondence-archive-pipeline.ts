@@ -11,7 +11,10 @@ import type { Pipeline } from "@/lib/harness/types";
 // email entity_status_signal composes) — same "structural identification,
 // never guessed from free text" reasoning CLAUDE.md #14 already applies
 // to senderEmail.
-const pipelineConfigSchema = z.object({
+// Exported for the same reason as entity-status-signal-pipeline.ts's
+// pipelineConfigSchema — the Agent form validates against this exact
+// schema, not a hand-copied approximation of it.
+export const pipelineConfigSchema = z.object({
   // Which CustomEntityType a reference token identifies a record in.
   entityType: z.string().min(1),
   keyField: z.string().min(1),
@@ -31,6 +34,10 @@ const pipelineConfigSchema = z.object({
   // "the conversation so far," not "one file per reply."
   correspondenceFilename: z.string().min(1),
 });
+
+export type EntityCorrespondenceArchiveConfig = z.infer<
+  typeof pipelineConfigSchema
+>;
 
 /**
  * EMAIL-triggered, zero LLM calls. Extracts a reference token from the

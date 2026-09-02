@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import type { AgentStatus, Prisma } from "@/lib/generated/prisma/client";
 import type { AgentColumnsInput } from "@/lib/agents/schemas";
 
 export function findAgentsByOrganisation(organisationId: string) {
@@ -18,7 +19,11 @@ export function findAgentById(organisationId: string, id: string) {
 
 export function createAgent(organisationId: string, input: AgentColumnsInput) {
   return prisma.agent.create({
-    data: { ...input, organisationId },
+    data: {
+      ...input,
+      organisationId,
+      pipelineConfig: input.pipelineConfig as Prisma.InputJsonValue,
+    },
   });
 }
 
@@ -29,6 +34,20 @@ export function updateAgent(
 ) {
   return prisma.agent.updateMany({
     where: { id, organisationId },
-    data: input,
+    data: {
+      ...input,
+      pipelineConfig: input.pipelineConfig as Prisma.InputJsonValue,
+    },
+  });
+}
+
+export function updateAgentStatus(
+  organisationId: string,
+  id: string,
+  status: AgentStatus,
+) {
+  return prisma.agent.updateMany({
+    where: { id, organisationId },
+    data: { status },
   });
 }

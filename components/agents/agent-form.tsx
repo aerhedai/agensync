@@ -8,9 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { EntityCorrespondenceArchiveFields } from "@/components/agents/entity-correspondence-archive-fields";
+import {
+  EntityStatusSignalFields,
+  type EntityTypeOption,
+} from "@/components/agents/entity-status-signal-fields";
 import type { Agent } from "@/lib/generated/prisma/client";
 import type { CategoryType } from "@/lib/agents/schemas";
 import type { ExtractionFieldConfig } from "@/lib/agents/extraction-fields";
+import type { EntityCorrespondenceArchiveConfig } from "@/lib/harness/pipelines/entity-correspondence-archive-pipeline";
+import type { EntityStatusSignalConfig } from "@/lib/harness/pipelines/entity-status-signal-pipeline";
 import { TOOL_REGISTRY } from "@/lib/mcp/tool-registry";
 
 function SubmitButton({ label }: { label: string }) {
@@ -45,11 +52,29 @@ const CATEGORY_TYPE_OPTIONS: {
     description:
       "The model decides which tools to call and in what order, turn by turn. More flexible, less predictable — this project's own findings are that tool-call failures happen here, not in the pipeline modes above. Prefer Acknowledge & Reply unless you specifically need this.",
   },
+  {
+    value: "entity_status_signal",
+    label: "Track status changes (webhook)",
+    description:
+      "Zero LLM calls. Triggered by a webhook (e.g. a Power Automate flow) reporting a status change on one of your catalog types — creates folders, sends an email, and/or notifies Teams depending on the new status.",
+  },
+  {
+    value: "entity_correspondence_archive",
+    label: "Archive correspondence (email)",
+    description:
+      "Zero LLM calls. Finds a record from a reference token in a reply's subject line and archives the message plus any attachments into that record's folder.",
+  },
 ];
 
 function deriveCategoryType(agent?: AgentFormValues): CategoryType {
   if (!agent) return "acknowledge_reply";
   if (agent.executionMode !== "HARNESS") return "loop";
+  if (
+    agent.pipelineKey === "entity_status_signal" ||
+    agent.pipelineKey === "entity_correspondence_archive"
+  ) {
+    return agent.pipelineKey;
+  }
   return agent.pipelineKey === "quote" ? "quote" : "acknowledge_reply";
 }
 
@@ -74,8 +99,10 @@ export function AgentForm({
   action,
   agent,
   submitLabel,
-  entityTypeNames = [],
+  entityTypes = [],
   gmailIntegrations = [],
+  initialEntityStatusSignalConfig,
+  initialEntityCorrespondenceArchiveConfig,
 }: {
   action: (
     prevState: AgentFormState,
@@ -83,15 +110,22 @@ export function AgentForm({
   ) => Promise<AgentFormState>;
   agent?: AgentFormValues;
   submitLabel: string;
-  // The organisation's own custom entity types (lib/entities/) — an
-  // extraction field can optionally be configured to look one up. Empty
-  // by default rather than required so this component doesn't break for
+  // The organisation's own custom entity types (lib/entities/), each with
+  // its own field list — an extraction field can optionally look one up,
+  // and the two structured pipeline configs below reference a type's
+  // fields directly. Empty by default so this component doesn't break for
   // any caller that hasn't been updated to fetch and pass them.
-  entityTypeNames?: string[];
+  entityTypes?: EntityTypeOption[];
   // The organisation's connected Gmail accounts — offered as the "action
   // account" this agent's send_email tool uses. Empty by default for the
-  // same reason as entityTypeNames above.
+  // same reason as entityTypes above.
   gmailIntegrations?: { id: string; name: string }[];
+  // Pre-parsed server-side (app/(app)/agents/[id]/edit/page.tsx) against
+  // each pipeline's own schema — kept out of this "use client" component
+  // so it never needs to import a pipeline module itself (those pull in
+  // server-only code: Prisma, the MCP client, etc.).
+  initialEntityStatusSignalConfig?: EntityStatusSignalConfig;
+  initialEntityCorrespondenceArchiveConfig?: EntityCorrespondenceArchiveConfig;
 }) {
   const [state, formAction] = useActionState<AgentFormState, FormData>(
     action,
@@ -247,9 +281,9 @@ export function AgentForm({
                   className="h-8 rounded-lg border border-border bg-background px-2 text-sm sm:w-40"
                 >
                   <option value="">Don&rsquo;t look up</option>
-                  {entityTypeNames.map((name) => (
-                    <option key={name} value={name}>
-                      Look up in {name}
+                  {entityTypes.map((e) => (
+                    <option key={e.name} value={e.name}>
+                      Look up in {e.name}
                     </option>
                   ))}
                 </select>
@@ -283,6 +317,36 @@ export function AgentForm({
           {state.fieldErrors?.extractionFields && (
             <p className="text-sm text-destructive">
               {state.fieldErrors.extractionFields[0]}
+            </p>
+          )}
+        </div>
+      )}
+
+      {categoryType === "entity_status_signal" && (
+        <div className="flex flex-col gap-2">
+          <Label>Status signal configuration</Label>
+          <EntityStatusSignalFields
+            entityTypes={entityTypes}
+            initial={initialEntityStatusSignalConfig}
+          />
+          {state.fieldErrors?.pipelineConfig && (
+            <p className="text-sm text-destructive">
+              {state.fieldErrors.pipelineConfig[0]}
+            </p>
+          )}
+        </div>
+      )}
+
+      {categoryType === "entity_correspondence_archive" && (
+        <div className="flex flex-col gap-2">
+          <Label>Correspondence archive configuration</Label>
+          <EntityCorrespondenceArchiveFields
+            entityTypes={entityTypes}
+            initial={initialEntityCorrespondenceArchiveConfig}
+          />
+          {state.fieldErrors?.pipelineConfig && (
+            <p className="text-sm text-destructive">
+              {state.fieldErrors.pipelineConfig[0]}
             </p>
           )}
         </div>
@@ -343,20 +407,23 @@ export function AgentForm({
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="replySubjectTemplate">Reply subject line</Label>
-        <Input
-          id="replySubjectTemplate"
-          name="replySubjectTemplate"
-          defaultValue={agent?.replySubjectTemplate ?? ""}
-          placeholder="Leave blank to use the default for this agent's job"
-        />
-        {state.fieldErrors?.replySubjectTemplate && (
-          <p className="text-sm text-destructive">
-            {state.fieldErrors.replySubjectTemplate[0]}
-          </p>
+      {categoryType !== "entity_status_signal" &&
+        categoryType !== "entity_correspondence_archive" && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="replySubjectTemplate">Reply subject line</Label>
+            <Input
+              id="replySubjectTemplate"
+              name="replySubjectTemplate"
+              defaultValue={agent?.replySubjectTemplate ?? ""}
+              placeholder="Leave blank to use the default for this agent's job"
+            />
+            {state.fieldErrors?.replySubjectTemplate && (
+              <p className="text-sm text-destructive">
+                {state.fieldErrors.replySubjectTemplate[0]}
+              </p>
+            )}
+          </div>
         )}
-      </div>
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="actionIntegrationId">Action account</Label>

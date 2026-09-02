@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { cleanEmailBody } from "@/lib/integrations/gmail/clean-email-body";
 import {
+  getGmailAttachmentContent,
   getGmailMessage,
   listUnreadInboxMessages,
   markGmailMessageRead,
@@ -11,10 +12,12 @@ import {
 import * as integrationService from "@/lib/integrations/integration-service";
 import {
   getOutlookMessage,
+  listOutlookAttachments,
   listUnreadOutlookMessages,
   markOutlookMessageRead,
 } from "@/lib/integrations/outlook/client";
 import { extractEmailDeterministically } from "@/lib/harness/pipeline-helpers";
+import type { ResolvedAttachment } from "@/lib/harness/types";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import { dispatchInboundMessage } from "@/lib/routing/dispatch";
 
@@ -38,6 +41,13 @@ const EMAIL_PROVIDER_ADAPTERS: Record<
   {
     listUnread: (accessToken: string) => Promise<EmailMessageSummary[]>;
     getMessage: (accessToken: string, id: string) => Promise<EmailMessage>;
+    // A second call, not folded into getMessage — most inbound email has
+    // no attachments, and this is only ever invoked lazily by a pipeline
+    // that actually wants them (see PipelineContext.getAttachments).
+    resolveAttachments: (
+      accessToken: string,
+      messageId: string,
+    ) => Promise<ResolvedAttachment[]>;
     markRead: (accessToken: string, id: string) => Promise<void>;
     getAccessToken: (
       organisationId: string,
@@ -48,12 +58,27 @@ const EMAIL_PROVIDER_ADAPTERS: Record<
   gmail: {
     listUnread: listUnreadInboxMessages,
     getMessage: getGmailMessage,
+    resolveAttachments: async (accessToken, messageId) => {
+      const message = await getGmailMessage(accessToken, messageId);
+      return Promise.all(
+        message.attachments.map(async (ref) => ({
+          filename: ref.filename,
+          mimeType: ref.mimeType,
+          content: await getGmailAttachmentContent(
+            accessToken,
+            messageId,
+            ref.attachmentId,
+          ),
+        })),
+      );
+    },
     markRead: markGmailMessageRead,
     getAccessToken: integrationService.getValidGmailAccessToken,
   },
   outlook: {
     listUnread: listUnreadOutlookMessages,
     getMessage: getOutlookMessage,
+    resolveAttachments: listOutlookAttachments,
     markRead: markOutlookMessageRead,
     getAccessToken: integrationService.getValidOutlookAccessToken,
   },
@@ -106,6 +131,8 @@ export async function checkInboxAction() {
         // sender is passed separately below, used only for identification.
         const input = `New email received.\nSubject: ${message.subject}\n\n${cleanEmailBody(message.body)}`;
         const senderEmail = extractEmailDeterministically(message.from);
+        const getAttachments = () =>
+          adapter.resolveAttachments(accessToken, summary.id);
         const result = await dispatchInboundMessage(
           organisation.id,
           "EMAIL",
@@ -113,6 +140,7 @@ export async function checkInboxAction() {
           undefined,
           senderEmail,
           integration.id,
+          getAttachments,
         );
 
         if (result.matched) {

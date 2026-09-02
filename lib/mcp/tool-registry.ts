@@ -86,6 +86,18 @@ export const TOOL_REGISTRY = [
     description:
       "Create (or reuse) a nested folder path in the business's connected Google Drive or SharePoint.",
   },
+  {
+    name: "save_storage_file",
+    label: "Save storage file",
+    description:
+      "Save a file into the business's connected Google Drive or SharePoint, creating the folder path if needed.",
+  },
+  {
+    name: "populate_document_template",
+    label: "Populate document template",
+    description:
+      "Fill a business's .docx quote template with real data and save the result to their connected storage.",
+  },
 ] as const;
 
 export type ToolName = (typeof TOOL_REGISTRY)[number]["name"];

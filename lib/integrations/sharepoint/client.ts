@@ -148,7 +148,10 @@ export async function ensureFolderPath(
 
 // Graph's simple upload (PUT .../content) — fine for the email bodies and
 // typical attachments this is built for; anything over ~4MB needs a
-// resumable upload session instead, not implemented yet.
+// resumable upload session instead, not implemented yet. Path-addressed,
+// so a second upload to the same folder+filename replaces the existing
+// file's content automatically — no separate "replace" mode needed the
+// way Google Drive's id-addressed API requires.
 export async function uploadFile(
   accessToken: string,
   driveId: string,
@@ -170,4 +173,117 @@ export async function uploadFile(
     },
   );
   return response.json();
+}
+
+// Same call signature shape as google-drive/client.ts's uploadOrReplaceFile
+// (the `replace` argument is a no-op here — uploadFile already replaces by
+// path) so the save_storage_file tool can treat both providers uniformly.
+export function uploadOrReplaceFile(
+  accessToken: string,
+  driveId: string,
+  folderItemId: string,
+  filename: string,
+  mimeType: string,
+  content: Buffer,
+  _replace = false,
+): Promise<{ id: string }> {
+  return uploadFile(
+    accessToken,
+    driveId,
+    folderItemId,
+    filename,
+    mimeType,
+    content,
+  );
+}
+
+async function findFileInFolder(
+  accessToken: string,
+  driveId: string,
+  parentItemId: string,
+  filename: string,
+): Promise<string | null> {
+  const params = new URLSearchParams({
+    $filter: `name eq '${escapeODataValue(filename)}'`,
+  });
+  const response = await graphFetch(
+    accessToken,
+    `/drives/${driveId}/items/${parentItemId}/children?${params.toString()}`,
+  );
+  const data = (await response.json()) as { value: DriveChild[] };
+  const match = data.value.find((child) => child.folder === undefined);
+  return match?.id ?? null;
+}
+
+export async function downloadFileContent(
+  accessToken: string,
+  driveId: string,
+  itemId: string,
+): Promise<Buffer> {
+  const response = await graphFetch(
+    accessToken,
+    `/drives/${driveId}/items/${itemId}/content`,
+  );
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function findFolderInFolder(
+  accessToken: string,
+  driveId: string,
+  parentItemId: string,
+  name: string,
+): Promise<string | null> {
+  const params = new URLSearchParams({
+    $filter: `name eq '${escapeODataValue(name)}'`,
+  });
+  const response = await graphFetch(
+    accessToken,
+    `/drives/${driveId}/items/${parentItemId}/children?${params.toString()}`,
+  );
+  const data = (await response.json()) as { value: DriveChild[] };
+  const match = data.value.find((child) => child.folder !== undefined);
+  return match?.id ?? null;
+}
+
+// Walks folders only (never creates any) then finds a file by name inside
+// the deepest one — same reasoning as google-drive/client.ts's
+// resolveAndDownloadFile: reading something a human is expected to have
+// already placed there should fail clearly on a wrong path, not silently
+// create it.
+export async function resolveAndDownloadFile(
+  accessToken: string,
+  driveId: string,
+  pathSegments: string[],
+): Promise<Buffer> {
+  if (pathSegments.length === 0) {
+    throw new Error("A file path needs at least a filename.");
+  }
+  const folderSegments = pathSegments.slice(0, -1);
+  const filename = pathSegments.at(-1) as string;
+
+  let parentItemId = "root";
+  for (const segment of folderSegments) {
+    const found = await findFolderInFolder(
+      accessToken,
+      driveId,
+      parentItemId,
+      segment,
+    );
+    if (!found) {
+      throw new Error(
+        `Folder "${segment}" was not found in "${pathSegments.join("/")}".`,
+      );
+    }
+    parentItemId = found;
+  }
+  const fileId = await findFileInFolder(
+    accessToken,
+    driveId,
+    parentItemId,
+    filename,
+  );
+  if (!fileId) {
+    throw new Error(`File "${pathSegments.join("/")}" was not found.`);
+  }
+  return downloadFileContent(accessToken, driveId, fileId);
 }

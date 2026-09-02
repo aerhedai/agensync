@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { env } from "@/lib/env";
 import { completePipeline } from "@/lib/harness/pipeline-completion";
 import { failPipeline } from "@/lib/harness/pipeline-failure";
 import { callTool } from "@/lib/harness/pipeline-helpers";
@@ -28,6 +29,18 @@ const transitionSchema = z.object({
       toField: z.string().min(1),
       subjectTemplate: z.string().min(1),
       bodyTemplate: z.string().min(1),
+    })
+    .optional(),
+  // Deliberately not a Teams-native interactive card (no Bot Service —
+  // same reasoning as the Teams integration's own "posts as the connecting
+  // person" limitation). The message links back to Agensync's own
+  // Approvals page instead via the {approvalUrl} placeholder, so approving
+  // still happens in the one place that already has the real approval UI.
+  notifyTeams: z
+    .object({
+      teamId: z.string().min(1),
+      channelId: z.string().min(1),
+      messageTemplate: z.string().min(1),
     })
     .optional(),
 });
@@ -133,6 +146,15 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
     id: string;
     data: Record<string, unknown>;
   };
+  // Available to every template below via {approvalUrl} — omitted (empty
+  // string) if NEXT_PUBLIC_APP_URL isn't configured, rather than failing
+  // the whole run over a notification nicety.
+  const templateData = {
+    ...record.data,
+    approvalUrl: env.NEXT_PUBLIC_APP_URL
+      ? `${env.NEXT_PUBLIC_APP_URL}/approvals`
+      : "",
+  };
 
   const transition = config.transitions[String(statusValue)];
   if (!transition) {
@@ -145,7 +167,7 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
   if (transition.createFolders) {
     const { provider, siteName, rootFolder, subfolders } =
       transition.createFolders;
-    const root = interpolate(rootFolder, record.data);
+    const root = interpolate(rootFolder, templateData);
     const paths =
       subfolders.length > 0 ? subfolders.map((sub) => [root, sub]) : [[root]];
     for (const path of paths) {
@@ -163,6 +185,18 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
     }
   }
 
+  if (transition.notifyTeams) {
+    const { teamId, channelId, messageTemplate } = transition.notifyTeams;
+    const notifyResult = await callTool(context, "notify_teams", {
+      teamId,
+      channelId,
+      message: interpolate(messageTemplate, templateData),
+    });
+    if (notifyResult.isError) {
+      return failPipeline(context, "Could not post the Teams notification.");
+    }
+  }
+
   if (transition.sendEmail) {
     const { toField, subjectTemplate, bodyTemplate } = transition.sendEmail;
     const to = record.data[toField];
@@ -176,8 +210,8 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
       toolName: context.agent.actionTool,
       args: {
         to,
-        subject: interpolate(subjectTemplate, record.data),
-        body: interpolate(bodyTemplate, record.data),
+        subject: interpolate(subjectTemplate, templateData),
+        body: interpolate(bodyTemplate, templateData),
       },
     });
   }

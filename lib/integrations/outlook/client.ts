@@ -114,6 +114,49 @@ export async function getOutlookMessage(
   };
 }
 
+export interface OutlookAttachment {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+}
+
+// Graph's fileAttachment shape includes contentBytes directly in the same
+// call that lists them (unlike Gmail, which needs a second round trip per
+// attachment) — fine for the typical email-attachment sizes this is built
+// for; Graph omits contentBytes above ~150MB, which would need a separate
+// $value download instead, not implemented here.
+interface GraphAttachment {
+  "@odata.type": string;
+  name: string;
+  contentType: string;
+  contentBytes?: string;
+}
+
+export async function listOutlookAttachments(
+  accessToken: string,
+  messageId: string,
+): Promise<OutlookAttachment[]> {
+  const params = new URLSearchParams({
+    $select: "name,contentType,contentBytes",
+  });
+  const response = await graphFetch(
+    accessToken,
+    `/messages/${messageId}/attachments?${params.toString()}`,
+  );
+  const data = (await response.json()) as { value: GraphAttachment[] };
+  return data.value
+    .filter(
+      (a) =>
+        a["@odata.type"] === "#microsoft.graph.fileAttachment" &&
+        a.contentBytes,
+    )
+    .map((a) => ({
+      filename: a.name,
+      mimeType: a.contentType,
+      content: Buffer.from(a.contentBytes as string, "base64"),
+    }));
+}
+
 export async function markOutlookMessageRead(
   accessToken: string,
   messageId: string,
@@ -127,7 +170,12 @@ export async function markOutlookMessageRead(
 
 export async function sendOutlookMessage(
   accessToken: string,
-  params: { to: string; subject: string; body: string },
+  params: {
+    to: string;
+    subject: string;
+    body: string;
+    attachments?: { filename: string; mimeType: string; content: Buffer }[];
+  },
 ): Promise<void> {
   await graphFetch(accessToken, "/sendMail", {
     method: "POST",
@@ -137,6 +185,12 @@ export async function sendOutlookMessage(
         subject: params.subject,
         body: { contentType: "Text", content: params.body },
         toRecipients: [{ emailAddress: { address: params.to } }],
+        attachments: params.attachments?.map((attachment) => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: attachment.filename,
+          contentType: attachment.mimeType,
+          contentBytes: attachment.content.toString("base64"),
+        })),
       },
     }),
   });

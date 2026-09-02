@@ -1,6 +1,7 @@
 import type { AIProvider } from "@/lib/ai/provider";
 import { getAIProvider } from "@/lib/ai/get-provider";
 import type { WorkflowTriggerType } from "@/lib/generated/prisma/client";
+import type { ResolvedAttachment } from "@/lib/harness/types";
 import { classifyIntent } from "@/lib/routing/classify-intent";
 import { deterministicClassify } from "@/lib/routing/deterministic-classify";
 import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
@@ -43,6 +44,7 @@ export async function dispatchInboundMessage(
   provider: AIProvider = getAIProvider(),
   senderEmail: string | null = null,
   triggerIntegrationId: string | null = null,
+  getAttachments?: () => Promise<ResolvedAttachment[]>,
 ): Promise<DispatchResult> {
   const workflow = await workflowService.findActiveWorkflowForDispatch(
     organisationId,
@@ -103,6 +105,7 @@ export async function dispatchInboundMessage(
     input,
     provider,
     senderEmail,
+    getAttachments,
   );
 
   return {

@@ -80,6 +80,32 @@ connection-pool exhaustion isn't a real problem yet at this scale;
 revisit if it becomes one, per CLAUDE.md's "don't add infrastructure
 before there's a demonstrated need").
 
+**Preview/Development are on a separate Neon branch from Production (closed).**
+Vercel's Neon integration originally set `DATABASE_URL` as one value shared
+across Production, Preview, _and_ Development — every PR's preview
+deployment was reading and writing the exact same database Production
+served. Fixed by creating a second Neon branch (`preview-dev`, a
+copy-on-write snapshot of `main` at creation time) and pointing Preview and
+Development's `DATABASE_URL` at it, leaving Production's own entry
+untouched. Zero application code changes — `lib/db/prisma.ts` already only
+ever reads `process.env.DATABASE_URL`, so this was purely a Vercel/Neon
+configuration change. Two branches now genuinely diverge from this point
+forward; a schema migration applied to `main` needs applying to
+`preview-dev` too (`prisma migrate deploy` against its own connection
+string) to keep it from drifting out of sync, the same as any other real
+environment pair.
+
+**Clerk is still running in test mode in Production, not fixed yet.** The
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` configured for Production is a `pk_test_`
+key — confirmed identical to the key used locally and in Preview. Clerk's
+test instances carry hard usage limits and are explicitly documented as
+unsuitable for a real deployment. Moving to a real Clerk Production
+instance needs a verified custom domain attached first (Clerk requires one
+for cookies to behave correctly across the instance) — deliberately not
+done yet, since no production domain has been chosen (still on
+`agensync.vercel.app`). Revisit together: domain choice, then Clerk
+Production instance, then updating Vercel's Production Clerk keys.
+
 **Ollama stays the AI provider in production, reached through an
 auth-gated proxy, not a hosted commercial API.** Vercel's servers can't
 reach the Tailscale-only network the Ollama host lives on directly.

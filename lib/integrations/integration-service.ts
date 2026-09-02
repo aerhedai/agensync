@@ -90,6 +90,20 @@ export function disconnectIntegration(
   return integrationRepository.deleteIntegration(organisationId, integrationId);
 }
 
+// "Remove this integration entirely" from Settings — every connected
+// account of one provider, not just one. Reuses the same org-scoped
+// disconnectIntegration per account rather than a bulk repository query,
+// so a cross-org id can never slip through a separate, unaudited path.
+export async function disconnectAllAccounts(
+  organisationId: string,
+  provider: string,
+) {
+  const accounts = await listIntegrationsByProvider(organisationId, provider);
+  await Promise.all(
+    accounts.map((account) => disconnectIntegration(organisationId, account.id)),
+  );
+}
+
 /**
  * The generic upsert every OAuth provider's callback route
  * (app/api/integrations/[provider]/callback) funnels through — a thin

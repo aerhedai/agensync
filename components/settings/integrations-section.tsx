@@ -1,10 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useFormStatus } from "react-dom";
 
-import { disconnectIntegrationAction } from "@/app/settings/actions";
-import { Button } from "@/components/ui/button";
+import {
+  disconnectAllAccountsAction,
+  disconnectIntegrationAction,
+} from "@/app/settings/actions";
+import { IntegrationIcon } from "@/components/settings/integration-icon";
 import { WebhookAccountForm } from "@/components/settings/webhook-account-form";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { GMAIL_INBOX_LABEL } from "@/lib/integrations/gmail/client";
 import { INTEGRATION_REGISTRY } from "@/lib/integrations/integration-registry";
 import { OUTLOOK_INBOX_FOLDER } from "@/lib/integrations/outlook/client";
@@ -14,37 +29,11 @@ export interface DisplayAccount {
   name: string;
 }
 
-// Dispatches on the registry's declared connectionMode rather than a
-// per-provider if-chain — "oauth" providers all render the same generic
-// "Connect" link (the whole point of generalizing the flow: a third OAuth
-// provider needs no change here at all). "manual" only ever needs
-// WebhookAccountForm today; not abstracted further than that since there's
-// still only one real manual-entry shape to support.
-function AddAccountButton({
-  provider,
-  label,
-  connectionMode,
-  baseUrl,
-}: {
+interface EntryProps {
   provider: string;
   label: string;
+  description: string;
   connectionMode: "oauth" | "manual";
-  baseUrl: string;
-}) {
-  if (connectionMode === "oauth") {
-    return (
-      <Button
-        nativeButton={false}
-        render={<a href={`/api/integrations/${provider}/connect`} />}
-      >
-        Add {label} account
-      </Button>
-    );
-  }
-  if (provider === "webhook") {
-    return <WebhookAccountForm baseUrl={baseUrl} />;
-  }
-  return null;
 }
 
 function ProviderSetupNotes({ provider }: { provider: string }) {
@@ -138,79 +127,183 @@ function ProviderSetupNotes({ provider }: { provider: string }) {
   return null;
 }
 
-function ProviderBox({
+// Dispatches on the registry's declared connectionMode rather than a
+// per-provider if-chain — "oauth" providers all render the same generic
+// "Connect" link (the whole point of generalizing the flow: a third OAuth
+// provider needs no change here at all). "manual" only ever needs
+// WebhookAccountForm today; not abstracted further than that since there's
+// still only one real manual-entry shape to support.
+function ConnectOrAddAccount({
   provider,
   label,
-  description,
   connectionMode,
+  baseUrl,
+}: EntryProps & { baseUrl: string }) {
+  if (connectionMode === "oauth") {
+    return (
+      <Button
+        nativeButton={false}
+        render={<a href={`/api/integrations/${provider}/connect`} />}
+      >
+        Continue to {label} →
+      </Button>
+    );
+  }
+  if (provider === "webhook") {
+    return <WebhookAccountForm baseUrl={baseUrl} />;
+  }
+  return null;
+}
+
+function AddIntegrationDialog({
+  entry,
+  baseUrl,
+}: {
+  entry: EntryProps;
+  baseUrl: string;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button>Add +</Button>} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Connect {entry.label}</DialogTitle>
+          <DialogDescription>{entry.description}</DialogDescription>
+        </DialogHeader>
+        <ProviderSetupNotes provider={entry.provider} />
+        <ConnectOrAddAccount {...entry} baseUrl={baseUrl} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ConfigureDialog({
+  entry,
   accounts,
   baseUrl,
 }: {
-  provider: string;
-  label: string;
-  description: string;
-  connectionMode: "oauth" | "manual";
+  entry: EntryProps;
   accounts: DisplayAccount[];
   baseUrl: string;
 }) {
-  const [expanded, setExpanded] = useState(accounts.length === 0);
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button variant="outline">Configure</Button>} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{entry.label} accounts</DialogTitle>
+          <DialogDescription>{entry.description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-2">
+          {accounts.map((account) => (
+            <div
+              key={account.id}
+              className="flex items-center justify-between rounded-md border border-border p-2 text-sm"
+            >
+              <span className="font-mono">{account.name}</span>
+              <form action={disconnectIntegrationAction.bind(null, account.id)}>
+                <Button type="submit" variant="outline" size="sm">
+                  Disconnect
+                </Button>
+              </form>
+            </div>
+          ))}
+        </div>
+
+        <ProviderSetupNotes provider={entry.provider} />
+
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
+          <p className="text-sm font-medium">Add another account</p>
+          <ConnectOrAddAccount {...entry} baseUrl={baseUrl} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RemoveIntegrationSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="destructive" disabled={pending}>
+      {pending ? "Removing…" : "Remove integration"}
+    </Button>
+  );
+}
+
+function DeleteIntegrationDialog({
+  entry,
+  accountCount,
+}: {
+  entry: EntryProps;
+  accountCount: number;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button variant="destructive">Delete</Button>} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove {entry.label}?</DialogTitle>
+          <DialogDescription>
+            Disconnects all {accountCount} connected account
+            {accountCount === 1 ? "" : "s"}. Any agent or workflow using{" "}
+            {entry.label} will stop working until it&rsquo;s reconnected.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline">Cancel</Button>} />
+          <form action={disconnectAllAccountsAction.bind(null, entry.provider)}>
+            <RemoveIntegrationSubmitButton />
+          </form>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function IntegrationCard({
+  entry,
+  accounts,
+  baseUrl,
+}: {
+  entry: EntryProps;
+  accounts: DisplayAccount[];
+  baseUrl: string;
+}) {
+  const isConnected = accounts.length > 0;
 
   return (
-    <div className="rounded-md border border-border">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between p-3 text-left"
-      >
-        <div>
-          <p className="font-medium">{label}</p>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <span className="text-sm text-muted-foreground">
-          {accounts.length} account{accounts.length === 1 ? "" : "s"}{" "}
-          {expanded ? "▲" : "▼"}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="flex flex-col gap-3 border-t border-border p-3">
-          {accounts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No accounts connected yet.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {accounts.map((account) => (
-                <div
-                  key={account.id}
-                  className="flex items-center justify-between rounded-md border border-border p-2 text-sm"
-                >
-                  <span className="font-mono">{account.name}</span>
-                  <form
-                    action={disconnectIntegrationAction.bind(null, account.id)}
-                  >
-                    <Button type="submit" variant="outline" size="sm">
-                      Disconnect
-                    </Button>
-                  </form>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <ProviderSetupNotes provider={provider} />
-
-          <div>
-            <AddAccountButton
-              provider={provider}
-              label={label}
-              connectionMode={connectionMode}
-              baseUrl={baseUrl}
-            />
+    <Card>
+      <CardContent className="flex h-full flex-col gap-3">
+        <div className="flex items-start gap-3">
+          <IntegrationIcon provider={entry.provider} />
+          <div className="flex-1">
+            <p className="font-medium">{entry.label}</p>
+            {isConnected && (
+              <p className="text-xs text-muted-foreground">
+                {accounts.length} account{accounts.length === 1 ? "" : "s"}{" "}
+                connected
+              </p>
+            )}
           </div>
         </div>
-      )}
-    </div>
+
+        <p className="flex-1 text-sm text-muted-foreground">
+          {entry.description}
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          {isConnected ? (
+            <>
+              <ConfigureDialog entry={entry} accounts={accounts} baseUrl={baseUrl} />
+              <DeleteIntegrationDialog entry={entry} accountCount={accounts.length} />
+            </>
+          ) : (
+            <AddIntegrationDialog entry={entry} baseUrl={baseUrl} />
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -230,9 +323,9 @@ export function IntegrationsSection({
   )?.label;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {connectedLabel && (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-success">
           {connectedLabel} account connected.
         </p>
       )}
@@ -240,17 +333,16 @@ export function IntegrationsSection({
         <p className="text-sm text-destructive">{errorMessage}</p>
       )}
 
-      {INTEGRATION_REGISTRY.map((entry) => (
-        <ProviderBox
-          key={entry.provider}
-          provider={entry.provider}
-          label={entry.label}
-          description={entry.description}
-          connectionMode={entry.connectionMode}
-          accounts={accountsByProvider[entry.provider] ?? []}
-          baseUrl={baseUrl}
-        />
-      ))}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {INTEGRATION_REGISTRY.map((entry) => (
+          <IntegrationCard
+            key={entry.provider}
+            entry={entry}
+            accounts={accountsByProvider[entry.provider] ?? []}
+            baseUrl={baseUrl}
+          />
+        ))}
+      </div>
     </div>
   );
 }

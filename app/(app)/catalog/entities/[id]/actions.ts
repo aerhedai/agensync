@@ -1,6 +1,7 @@
 "use server";
 
 import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 import * as entityRecordService from "@/lib/entities/entity-record-service";
 import * as entityTypeService from "@/lib/entities/entity-type-service";
@@ -55,4 +56,19 @@ export async function createRecordAction(
     parsed.data,
   );
   redirect(`/catalog/entities/${entityTypeId}`);
+}
+
+export async function deleteRecordAction(
+  entityTypeId: string,
+  recordId: string,
+) {
+  const organisation = await getCurrentOrganisation();
+  const deleted = await entityRecordService.deleteRecord(
+    organisation.id,
+    recordId,
+  );
+  if (!deleted) {
+    notFound();
+  }
+  revalidatePath(`/catalog/entities/${entityTypeId}`);
 }

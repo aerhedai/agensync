@@ -21,6 +21,14 @@ export function createRecord(
   });
 }
 
+// deleteMany, org-scoped — same safety idiom as
+// entity-type-repository.ts's deleteEntityType.
+export function deleteRecord(organisationId: string, recordId: string) {
+  return prisma.customEntityRecord.deleteMany({
+    where: { id: recordId, organisationId },
+  });
+}
+
 // Merges into the existing data blob rather than replacing it — an update
 // almost always means "this one field changed" (e.g. status), not "here is
 // the complete record again." A caller that genuinely wants to drop a

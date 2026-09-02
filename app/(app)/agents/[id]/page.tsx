@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { runAgentAction } from "@/app/agents/[id]/actions";
+import { runAgentAction } from "@/app/(app)/agents/[id]/actions";
 import { AgentStatusBadge } from "@/components/agents/agent-status-badge";
 import { RunAgentForm } from "@/components/agents/run-agent-form";
 import { RunStatusBadge } from "@/components/runs/run-status-badge";

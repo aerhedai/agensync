@@ -9,7 +9,7 @@ import {
   updateLegalLinksAction,
   type DangerZoneFormState,
   type LegalLinksFormState,
-} from "@/app/settings/actions";
+} from "@/app/(app)/settings/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

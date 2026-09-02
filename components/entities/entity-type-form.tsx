@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import {
   createEntityTypeAction,
   type EntityTypeFormState,
-} from "@/app/catalog/entities/actions";
+} from "@/app/(app)/catalog/entities/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import {
   createCustomerAction,
   type CustomerFormState,
-} from "@/app/catalog/customers/actions";
+} from "@/app/(app)/catalog/customers/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

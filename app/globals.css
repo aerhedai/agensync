@@ -43,6 +43,10 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-marketing-ink: var(--marketing-ink);
+  --color-marketing-ink-foreground: var(--marketing-ink-foreground);
+  --color-marketing-amber: var(--marketing-amber);
+  --color-marketing-amber-foreground: var(--marketing-amber-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -93,6 +97,16 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.208 0.042 265.755);
+
+  /* Marketing-site-only tokens — fixed regardless of light/dark mode
+     (the public site isn't theme-toggled, unlike the app). "ink" is a
+     richer, near-black version of the app's own navy, used for the hero
+     and footer bands; "amber" is the one accent color the internal admin
+     tool deliberately avoids, reserved here for marketing CTAs only. */
+  --marketing-ink: oklch(0.15 0.045 265.755);
+  --marketing-ink-foreground: oklch(0.984 0.003 247.858);
+  --marketing-amber: oklch(0.72 0.15 70);
+  --marketing-amber-foreground: oklch(0.15 0.045 265.755);
 }
 
 .dark {
@@ -142,5 +156,23 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@keyframes trace-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
   }
 }

@@ -1,4 +1,4 @@
-import { createAgentAction } from "@/app/agents/actions";
+import { createAgentAction } from "@/app/(app)/agents/actions";
 import { AgentForm } from "@/components/agents/agent-form";
 import * as entityTypeService from "@/lib/entities/entity-type-service";
 import * as integrationService from "@/lib/integrations/integration-service";

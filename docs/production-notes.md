@@ -95,6 +95,24 @@ forward; a schema migration applied to `main` needs applying to
 string) to keep it from drifting out of sync, the same as any other real
 environment pair.
 
+**`prisma migrate deploy` was never wired into the deploy pipeline (closed,
+after a real outage).** `/dashboard` was down in Production for several
+hours: every load threw `PrismaClientKnownRequestError` (`P2022`,
+`Organisation.termsUrl` does not exist), because the migration that added
+that column had merged and deployed as *application code* while nothing
+ever ran `prisma migrate deploy` against the actual Production database —
+`db:migrate` (`prisma migrate dev`) only ever runs locally, and the Vercel
+build command was plain `next build`. Four migrations had piled up
+unapplied on `main` by the time this was caught, and `preview-dev` had the
+identical gap (branched from `main` before any of them existed, with
+nothing keeping it current per the paragraph above). Fixed in two parts:
+applied the missing migrations directly to both the Production and
+`preview-dev` databases to restore service, then closed the actual gap by
+changing `build` to `prisma migrate deploy && next build` — Vercel runs the
+same build command for every environment, so this now keeps Production and
+Preview's database schema honest automatically on every deploy, going
+forward, without relying on anyone remembering to run it by hand.
+
 **Clerk is still running in test mode in Production, not fixed yet.** The
 `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` configured for Production is a `pk_test_`
 key — confirmed identical to the key used locally and in Preview. Clerk's

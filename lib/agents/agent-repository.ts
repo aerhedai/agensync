@@ -51,3 +51,14 @@ export function updateAgentStatus(
     data: { status },
   });
 }
+
+// Cascades to AgentTool/WorkflowAgent rows (pure config, no audit value —
+// see schema.prisma). Deliberately NOT cascaded to AgentRun: deleting an
+// agent that has real run history would silently destroy an audit trail
+// this platform otherwise goes out of its way to keep (CLAUDE.md #21) —
+// the foreign key is left RESTRICT, so Postgres itself refuses this and
+// the service layer surfaces that as "archive instead" rather than ever
+// cascading run history away.
+export function deleteAgent(organisationId: string, id: string) {
+  return prisma.agent.deleteMany({ where: { id, organisationId } });
+}

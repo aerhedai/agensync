@@ -108,3 +108,103 @@ describe("agentService.updateAgentStatus", () => {
     expect(reloaded.status).toBe("DRAFT");
   });
 });
+
+describe("agentService.deleteAgent", () => {
+  const organisationId = "test-org-agent-delete";
+  const otherOrganisationId = "test-org-agent-delete-other";
+
+  afterAll(async () => {
+    await prisma.agentTool.deleteMany({ where: { agent: { organisationId } } });
+    await prisma.agentRun.deleteMany({ where: { organisationId } });
+    await prisma.agent.deleteMany({
+      where: { organisationId: { in: [organisationId, otherOrganisationId] } },
+    });
+    await prisma.organisation.deleteMany({
+      where: { id: { in: [organisationId, otherOrganisationId] } },
+    });
+    await prisma.$disconnect();
+  });
+
+  it("deletes an agent with no run history, cascading its tool grants", async () => {
+    await prisma.organisation.create({
+      data: { id: organisationId, clerkOrgId: organisationId, name: "Org" },
+    });
+    const agent = await prisma.agent.create({
+      data: {
+        organisationId,
+        name: "Delete Test Agent",
+        description: "d",
+        instructions: "i",
+        model: "llama3",
+      },
+    });
+    await prisma.agentTool.create({
+      data: { agentId: agent.id, toolName: "send_email" },
+    });
+
+    const deleted = await agentService.deleteAgent(organisationId, agent.id);
+
+    expect(deleted).toBe(true);
+    const reloaded = await prisma.agent.findUnique({ where: { id: agent.id } });
+    expect(reloaded).toBeNull();
+    const tools = await prisma.agentTool.findMany({
+      where: { agentId: agent.id },
+    });
+    expect(tools).toHaveLength(0);
+  });
+
+  it("throws a clear error and does not delete an agent with real run history", async () => {
+    const agent = await prisma.agent.create({
+      data: {
+        organisationId,
+        name: "Delete Test Agent With Runs",
+        description: "d",
+        instructions: "i",
+        model: "llama3",
+      },
+    });
+    await prisma.agentRun.create({
+      data: {
+        agentId: agent.id,
+        organisationId,
+        input: "test input",
+        status: "COMPLETED",
+      },
+    });
+
+    await expect(
+      agentService.deleteAgent(organisationId, agent.id),
+    ).rejects.toThrow("archive it instead");
+
+    const reloaded = await prisma.agent.findUnique({ where: { id: agent.id } });
+    expect(reloaded).not.toBeNull();
+  });
+
+  it("does not delete an agent belonging to a different organisation", async () => {
+    await prisma.organisation.create({
+      data: {
+        id: otherOrganisationId,
+        clerkOrgId: otherOrganisationId,
+        name: "Other Org",
+      },
+    });
+    const agent = await prisma.agent.create({
+      data: {
+        organisationId,
+        name: "Delete Test Agent Cross-Org",
+        description: "d",
+        instructions: "i",
+        model: "llama3",
+      },
+    });
+
+    const deleted = await agentService.deleteAgent(
+      otherOrganisationId,
+      agent.id,
+    );
+
+    expect(deleted).toBe(false);
+    const reloaded = await prisma.agent.findUnique({ where: { id: agent.id } });
+    expect(reloaded).not.toBeNull();
+  });
+});

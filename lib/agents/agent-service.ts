@@ -1,7 +1,7 @@
 import * as agentRepository from "@/lib/agents/agent-repository";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import type { AgentInput } from "@/lib/agents/schemas";
-import type { AgentStatus } from "@/lib/generated/prisma/client";
+import { Prisma, type AgentStatus } from "@/lib/generated/prisma/client";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 
 export function listAgents(organisationId: string) {
@@ -78,5 +78,29 @@ export async function updateAgentStatus(
   );
   if (result.count === 0) {
     throw new Error("Agent not found");
+  }
+}
+
+export async function deleteAgent(
+  organisationId: string,
+  id: string,
+): Promise<boolean> {
+  try {
+    const { count } = await agentRepository.deleteAgent(organisationId, id);
+    return count > 0;
+  } catch (error) {
+    // P2003: foreign key constraint failed — this agent has real run
+    // history (AgentRun.agent is deliberately not cascaded, see
+    // agent-repository.ts). Archiving removes it from workflow dispatch
+    // just as completely without destroying that history.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2003"
+    ) {
+      throw new Error(
+        "This agent has run history and can't be deleted — archive it instead.",
+      );
+    }
+    throw error;
   }
 }

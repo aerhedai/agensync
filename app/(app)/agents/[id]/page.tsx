@@ -6,6 +6,7 @@ import {
   updateAgentStatusAction,
 } from "@/app/(app)/agents/[id]/actions";
 import { AgentStatusBadge } from "@/components/agents/agent-status-badge";
+import { DeleteAgentDialog } from "@/components/agents/delete-agent-dialog";
 import { RunAgentForm } from "@/components/agents/run-agent-form";
 import { RunStatusBadge } from "@/components/runs/run-status-badge";
 import { Button } from "@/components/ui/button";
@@ -65,8 +66,17 @@ export default async function AgentDetailPage({
           >
             Edit
           </Button>
+          {runs.length === 0 && (
+            <DeleteAgentDialog id={agent.id} name={agent.name} />
+          )}
         </div>
       </div>
+      {runs.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          This agent has run history, so it can&rsquo;t be deleted — archive it
+          instead to keep it out of workflow dispatch.
+        </p>
+      )}
 
       <Card>
         <CardHeader>

@@ -49,3 +49,16 @@ export async function updateAgentStatusAction(
   revalidatePath(`/agents/${agentId}`);
   revalidatePath("/agents");
 }
+
+// Only offered in the UI when the agent has zero runs (see
+// app/(app)/agents/[id]/page.tsx) — deleting one with real run history
+// throws (agent-service.ts), archiving is the only removal path for those.
+export async function deleteAgentAction(agentId: string) {
+  const organisation = await getCurrentOrganisation();
+  const deleted = await agentService.deleteAgent(organisation.id, agentId);
+  if (!deleted) {
+    notFound();
+  }
+  revalidatePath("/agents");
+  redirect("/agents");
+}

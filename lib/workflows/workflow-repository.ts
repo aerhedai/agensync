@@ -68,6 +68,19 @@ export function addWorkflowMember(
   });
 }
 
+// Scoped via the workflow's own organisationId, not trusted from the
+// workflowId/agentId pair alone — the join is what stops one org's
+// request from touching another org's membership row.
+export function removeWorkflowMember(
+  organisationId: string,
+  workflowId: string,
+  agentId: string,
+) {
+  return prisma.workflowAgent.deleteMany({
+    where: { workflowId, agentId, workflow: { organisationId } },
+  });
+}
+
 export function createWorkflow(
   organisationId: string,
   input: {

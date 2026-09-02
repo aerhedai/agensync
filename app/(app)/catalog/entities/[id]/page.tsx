@@ -98,10 +98,24 @@ export default async function EntityTypeDetailPage({
                         </p>
                       ))}
                     </div>
-                    <DeleteRecordButton
-                      entityTypeId={id}
-                      recordId={record.id}
-                    />
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        nativeButton={false}
+                        render={
+                          <Link
+                            href={`/catalog/entities/${id}/records/${record.id}/edit`}
+                          />
+                        }
+                      >
+                        Edit
+                      </Button>
+                      <DeleteRecordButton
+                        entityTypeId={id}
+                        recordId={record.id}
+                      />
+                    </div>
                   </div>
                 );
               })}

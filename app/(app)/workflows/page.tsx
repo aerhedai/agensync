@@ -4,14 +4,20 @@ import { AgentStatusBadge } from "@/components/agents/agent-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { WorkflowFlowDiagram } from "@/components/workflows/workflow-flow-diagram";
+import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
+import { getWorkflowWarnings } from "@/lib/workflows/workflow-health";
 import * as workflowService from "@/lib/workflows/workflow-service";
 
 export const dynamic = "force-dynamic";
 
 export default async function WorkflowsPage() {
   const organisation = await getCurrentOrganisation();
-  const workflows = await workflowService.listWorkflows(organisation.id);
+  const [workflows, integrations] = await Promise.all([
+    workflowService.listWorkflows(organisation.id),
+    integrationService.listIntegrations(organisation.id),
+  ]);
+  const connectedProviders = new Set(integrations.map((i) => i.provider));
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -47,6 +53,7 @@ export default async function WorkflowsPage() {
             const handlerMembers = workflow.members.filter(
               (m) => m.role === "HANDLER",
             );
+            const warnings = getWorkflowWarnings(workflow, connectedProviders);
 
             return (
               <Card key={workflow.id}>
@@ -77,9 +84,19 @@ export default async function WorkflowsPage() {
                   <p className="text-sm text-muted-foreground">
                     {workflow.description}
                   </p>
+                  {warnings.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-2">
+                      {warnings.map((warning) => (
+                        <p key={warning} className="text-xs text-destructive">
+                          Warning: {warning}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <WorkflowFlowDiagram
+                    workflowId={workflow.id}
                     classifier={
                       classifierMember
                         ? {

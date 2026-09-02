@@ -1,6 +1,7 @@
 import * as agentRepository from "@/lib/agents/agent-repository";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import type { AgentInput } from "@/lib/agents/schemas";
+import { Prisma, type AgentStatus } from "@/lib/generated/prisma/client";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 
 export function listAgents(organisationId: string) {
@@ -11,13 +12,16 @@ export function getAgent(organisationId: string, id: string) {
   return agentRepository.findAgentById(organisationId, id);
 }
 
-/**
- * actionTool is always "send_email" today (no UI to change it yet — see
- * Agent.actionTool's schema.prisma comment), so the account it binds to
- * must always be a Gmail one. Re-checked here (not trusted from the form)
- * since the id itself is organisation-scoped by findIntegrationById, but
- * nothing before this point confirms it's actually a Gmail account.
- */
+// actionTool is always "send_email" today (no UI to change it yet — see
+// Agent.actionTool's schema.prisma comment), which is provider-agnostic
+// across Gmail and Outlook Mail (getValidEmailAccessToken resolves
+// whichever is actually connected/pinned) — so the bound account must be
+// one of those two, not literally Gmail. Re-checked here (not trusted
+// from the form) since the id itself is organisation-scoped by
+// findIntegrationById, but nothing before this point confirms it's
+// actually an email account at all.
+const ACTION_ACCOUNT_PROVIDERS = ["gmail", "outlook"];
+
 async function validateActionIntegration(
   organisationId: string,
   actionIntegrationId: string | null,
@@ -32,9 +36,9 @@ async function validateActionIntegration(
   if (!integration) {
     throw new Error("Connected account not found");
   }
-  if (integration.provider !== "gmail") {
+  if (!ACTION_ACCOUNT_PROVIDERS.includes(integration.provider)) {
     throw new Error(
-      `The action account must be a Gmail account, not a ${integration.provider} one`,
+      `The action account must be a Gmail or Outlook account, not a ${integration.provider} one`,
     );
   }
 }
@@ -63,4 +67,43 @@ export async function updateAgent(
     throw new Error("Agent not found");
   }
   await agentToolRepository.setToolsForAgent(id, toolNames);
+}
+
+export async function updateAgentStatus(
+  organisationId: string,
+  id: string,
+  status: AgentStatus,
+) {
+  const result = await agentRepository.updateAgentStatus(
+    organisationId,
+    id,
+    status,
+  );
+  if (result.count === 0) {
+    throw new Error("Agent not found");
+  }
+}
+
+export async function deleteAgent(
+  organisationId: string,
+  id: string,
+): Promise<boolean> {
+  try {
+    const { count } = await agentRepository.deleteAgent(organisationId, id);
+    return count > 0;
+  } catch (error) {
+    // P2003: foreign key constraint failed — this agent has real run
+    // history (AgentRun.agent is deliberately not cascaded, see
+    // agent-repository.ts). Archiving removes it from workflow dispatch
+    // just as completely without destroying that history.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2003"
+    ) {
+      throw new Error(
+        "This agent has run history and can't be deleted — archive it instead.",
+      );
+    }
+    throw error;
+  }
 }

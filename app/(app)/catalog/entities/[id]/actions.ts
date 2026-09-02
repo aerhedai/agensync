@@ -72,3 +72,42 @@ export async function deleteRecordAction(
   }
   revalidatePath(`/catalog/entities/${entityTypeId}`);
 }
+
+export async function updateRecordAction(
+  entityTypeId: string,
+  recordId: string,
+  _prevState: RecordFormState,
+  formData: FormData,
+): Promise<RecordFormState> {
+  const organisation = await getCurrentOrganisation();
+  const entityType = await entityTypeService.getEntityType(
+    organisation.id,
+    entityTypeId,
+  );
+  if (!entityType) {
+    notFound();
+  }
+
+  const fields = entityFieldsSchema.parse(entityType.fields);
+  const schema = buildRecordDataSchema(fields);
+
+  const raw: Record<string, string> = {};
+  for (const field of fields) {
+    raw[field.name] = String(formData.get(field.name) ?? "");
+  }
+
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    return { fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+
+  const updated = await entityRecordService.updateRecord(
+    organisation.id,
+    recordId,
+    parsed.data,
+  );
+  if (!updated) {
+    notFound();
+  }
+  redirect(`/catalog/entities/${entityTypeId}`);
+}

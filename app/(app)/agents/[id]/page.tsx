@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { runAgentAction } from "@/app/(app)/agents/[id]/actions";
+import {
+  runAgentAction,
+  updateAgentStatusAction,
+} from "@/app/(app)/agents/[id]/actions";
 import { AgentStatusBadge } from "@/components/agents/agent-status-badge";
+import { DeleteAgentDialog } from "@/components/agents/delete-agent-dialog";
 import { RunAgentForm } from "@/components/agents/run-agent-form";
 import { RunStatusBadge } from "@/components/runs/run-status-badge";
 import { Button } from "@/components/ui/button";
@@ -37,14 +41,42 @@ export default async function AgentDetailPage({
           <h1 className="text-xl font-semibold">{agent.name}</h1>
           <AgentStatusBadge status={agent.status} />
         </div>
-        <Button
-          variant="outline"
-          nativeButton={false}
-          render={<Link href={`/agents/${agent.id}/edit`} />}
-        >
-          Edit
-        </Button>
+        <div className="flex items-center gap-2">
+          {agent.status === "ACTIVE" ? (
+            <form
+              action={updateAgentStatusAction.bind(null, agent.id, "ARCHIVED")}
+            >
+              <Button type="submit" variant="outline">
+                Archive
+              </Button>
+            </form>
+          ) : (
+            <form
+              action={updateAgentStatusAction.bind(null, agent.id, "ACTIVE")}
+            >
+              <Button type="submit" variant="outline">
+                Activate
+              </Button>
+            </form>
+          )}
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/agents/${agent.id}/edit`} />}
+          >
+            Edit
+          </Button>
+          {runs.length === 0 && (
+            <DeleteAgentDialog id={agent.id} name={agent.name} />
+          )}
+        </div>
       </div>
+      {runs.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          This agent has run history, so it can&rsquo;t be deleted — archive it
+          instead to keep it out of workflow dispatch.
+        </p>
+      )}
 
       <Card>
         <CardHeader>

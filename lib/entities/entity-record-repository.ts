@@ -11,6 +11,12 @@ export function findRecordsByEntityType(
   });
 }
 
+export function findRecordById(organisationId: string, recordId: string) {
+  return prisma.customEntityRecord.findFirst({
+    where: { id: recordId, organisationId },
+  });
+}
+
 export function createRecord(
   organisationId: string,
   entityTypeId: string,

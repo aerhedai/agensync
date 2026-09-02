@@ -335,7 +335,9 @@ model AgentTool {
   agentId  String
   toolName String
 
-  agent Agent @relation(fields: [agentId], references: [id])
+  // Cascade: a tool grant has no independent value once its agent is
+  // gone — unlike AgentRun below, deleting one destroys no audit trail.
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([agentId, toolName])
   @@index([agentId])
@@ -401,7 +403,9 @@ model WorkflowAgent {
   role       WorkflowAgentRole
 
   workflow Workflow @relation(fields: [workflowId], references: [id])
-  agent    Agent    @relation(fields: [agentId], references: [id])
+  // Cascade: same reasoning as AgentTool.agent — a workflow membership row
+  // has no independent value once the agent it points at is gone.
+  agent    Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([workflowId, agentId])
   @@index([workflowId])

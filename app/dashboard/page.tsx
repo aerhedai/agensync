@@ -231,10 +231,7 @@ export default async function DashboardPage({
             ) : (
               <p className="text-sm text-muted-foreground">
                 Not connected.{" "}
-                <Link
-                  href="/settings"
-                  className="text-primary hover:underline"
-                >
+                <Link href="/settings" className="text-primary hover:underline">
                   Connect Gmail or Outlook in Settings
                 </Link>{" "}
                 to trigger agents from real email.

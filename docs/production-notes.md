@@ -99,7 +99,7 @@ environment pair.
 after a real outage).** `/dashboard` was down in Production for several
 hours: every load threw `PrismaClientKnownRequestError` (`P2022`,
 `Organisation.termsUrl` does not exist), because the migration that added
-that column had merged and deployed as *application code* while nothing
+that column had merged and deployed as _application code_ while nothing
 ever ran `prisma migrate deploy` against the actual Production database —
 `db:migrate` (`prisma migrate dev`) only ever runs locally, and the Vercel
 build command was plain `next build`. Four migrations had piled up

@@ -12,13 +12,16 @@ export function getAgent(organisationId: string, id: string) {
   return agentRepository.findAgentById(organisationId, id);
 }
 
-/**
- * actionTool is always "send_email" today (no UI to change it yet — see
- * Agent.actionTool's schema.prisma comment), so the account it binds to
- * must always be a Gmail one. Re-checked here (not trusted from the form)
- * since the id itself is organisation-scoped by findIntegrationById, but
- * nothing before this point confirms it's actually a Gmail account.
- */
+// actionTool is always "send_email" today (no UI to change it yet — see
+// Agent.actionTool's schema.prisma comment), which is provider-agnostic
+// across Gmail and Outlook Mail (getValidEmailAccessToken resolves
+// whichever is actually connected/pinned) — so the bound account must be
+// one of those two, not literally Gmail. Re-checked here (not trusted
+// from the form) since the id itself is organisation-scoped by
+// findIntegrationById, but nothing before this point confirms it's
+// actually an email account at all.
+const ACTION_ACCOUNT_PROVIDERS = ["gmail", "outlook"];
+
 async function validateActionIntegration(
   organisationId: string,
   actionIntegrationId: string | null,
@@ -33,9 +36,9 @@ async function validateActionIntegration(
   if (!integration) {
     throw new Error("Connected account not found");
   }
-  if (integration.provider !== "gmail") {
+  if (!ACTION_ACCOUNT_PROVIDERS.includes(integration.provider)) {
     throw new Error(
-      `The action account must be a Gmail account, not a ${integration.provider} one`,
+      `The action account must be a Gmail or Outlook account, not a ${integration.provider} one`,
     );
   }
 }

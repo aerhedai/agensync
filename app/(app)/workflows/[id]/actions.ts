@@ -1,6 +1,7 @@
 "use server";
 
 import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import * as workflowService from "@/lib/workflows/workflow-service";
@@ -52,4 +53,25 @@ export async function deactivateWorkflowAction(workflowId: string) {
   const organisation = await getCurrentOrganisation();
   await workflowService.deactivateWorkflow(organisation.id, workflowId);
   redirect(`/workflows/${workflowId}`);
+}
+
+// Removes the membership row only — the agent itself is untouched (see
+// workflow-service.ts's removeMember doc comment). Deliberately no
+// confirmation dialog: reversible in one click via "Add agent to this
+// workflow" below, same lightweight-destructive-action precedent as
+// disconnecting a single integration account.
+export async function removeWorkflowMemberAction(
+  workflowId: string,
+  agentId: string,
+) {
+  const organisation = await getCurrentOrganisation();
+  const removed = await workflowService.removeMember(
+    organisation.id,
+    workflowId,
+    agentId,
+  );
+  if (!removed) {
+    notFound();
+  }
+  revalidatePath(`/workflows/${workflowId}`);
 }

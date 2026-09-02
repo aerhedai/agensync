@@ -7,14 +7,19 @@ import * as integrationRepository from "@/lib/integrations/integration-repositor
 import type { WorkflowInput } from "@/lib/workflows/schemas";
 import * as workflowRepository from "@/lib/workflows/workflow-repository";
 
-// Which Integration.provider a trigger's bound account must be — enforced
-// here (not in the Zod schema) because it needs a DB lookup to check.
-// WEBHOOK has no generic fallback (there's no non-account-specific webhook
-// URL), so it's required; EMAIL still allows null (the org-wide default
-// Gmail account, today's only behavior for email-triggered workflows).
-const TRIGGER_INTEGRATION_PROVIDERS: Record<WorkflowTriggerType, string> = {
-  EMAIL: "gmail",
-  WEBHOOK: "webhook",
+// Which Integration.provider(s) a trigger's bound account may be —
+// enforced here (not in the Zod schema) because it needs a DB lookup to
+// check. WEBHOOK has no generic fallback (there's no non-account-specific
+// webhook URL), so it's required; EMAIL still allows null (the org-wide
+// default email account, today's only behavior for email-triggered
+// workflows). EMAIL accepts either gmail or outlook — "send/receive
+// email" is one concept to a business regardless of which provider backs
+// it, same reasoning as getValidEmailAccessToken's own provider-agnostic
+// resolution.
+export const EMAIL_TRIGGER_PROVIDERS = ["gmail", "outlook"] as const;
+const TRIGGER_INTEGRATION_PROVIDERS: Record<WorkflowTriggerType, string[]> = {
+  EMAIL: [...EMAIL_TRIGGER_PROVIDERS],
+  WEBHOOK: ["webhook"],
 };
 const TRIGGERS_REQUIRING_ACCOUNT: WorkflowTriggerType[] = ["WEBHOOK"];
 
@@ -39,9 +44,10 @@ async function validateTriggerIntegration(
   if (!integration) {
     throw new Error("Connected account not found");
   }
-  if (integration.provider !== TRIGGER_INTEGRATION_PROVIDERS[trigger]) {
+  const allowedProviders = TRIGGER_INTEGRATION_PROVIDERS[trigger];
+  if (!allowedProviders.includes(integration.provider)) {
     throw new Error(
-      `A ${trigger} workflow must be bound to a ${TRIGGER_INTEGRATION_PROVIDERS[trigger]} account, not a ${integration.provider} one`,
+      `A ${trigger} workflow must be bound to a ${allowedProviders.join(" or ")} account, not a ${integration.provider} one`,
     );
   }
 }
@@ -129,6 +135,23 @@ export async function addMember(
     throw new Error("Agent not found");
   }
   return workflowRepository.addWorkflowMember(workflowId, agentId, role);
+}
+
+// Removes the membership row only — never touches the agent itself. An
+// agent stays exactly as configured and can be re-added to this or any
+// other workflow later; this is the "wrong workflow, not wrong agent"
+// fix that deleting the agent (a separate, unrelated action) isn't.
+export async function removeMember(
+  organisationId: string,
+  workflowId: string,
+  agentId: string,
+): Promise<boolean> {
+  const { count } = await workflowRepository.removeWorkflowMember(
+    organisationId,
+    workflowId,
+    agentId,
+  );
+  return count > 0;
 }
 
 // Always CUSTOM/DRAFT — a template's workflow only ever comes from

@@ -16,6 +16,7 @@ import * as agentService from "@/lib/agents/agent-service";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import * as runService from "@/lib/runs/run-service";
+import { getWorkflowWarnings } from "@/lib/workflows/workflow-health";
 import * as workflowService from "@/lib/workflows/workflow-service";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,12 @@ export default async function WorkflowDetailPage({
   const allAgents = await agentService.listAgents(organisation.id);
   const unattachedAgents = allAgents.filter((a) => !memberAgentIds.has(a.id));
 
+  const integrations = await integrationService.listIntegrations(
+    organisation.id,
+  );
+  const connectedProviders = new Set(integrations.map((i) => i.provider));
+  const warnings = getWorkflowWarnings(workflow, connectedProviders);
+
   const triggerIntegration = workflow.triggerIntegrationId
     ? await integrationService.getIntegration(
         organisation.id,
@@ -70,6 +77,19 @@ export default async function WorkflowDetailPage({
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {activationError}
         </p>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+          <p className="text-sm font-medium text-destructive">
+            This workflow is ACTIVE but misconfigured:
+          </p>
+          {warnings.map((warning) => (
+            <p key={warning} className="text-sm text-destructive">
+              {warning}
+            </p>
+          ))}
+        </div>
       )}
 
       <div className="flex items-center justify-between">
@@ -148,6 +168,7 @@ export default async function WorkflowDetailPage({
         </CardHeader>
         <CardContent>
           <WorkflowFlowDiagram
+            workflowId={workflow.id}
             classifier={
               classifierMember
                 ? {

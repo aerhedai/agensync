@@ -7,9 +7,11 @@ import { createCheckInventoryTool } from "@/lib/mcp/tools/check-inventory";
 import { createCreateCalendarEventTool } from "@/lib/mcp/tools/create-calendar-event";
 import { createCreateCustomEntityRecordTool } from "@/lib/mcp/tools/create-custom-entity-record";
 import { createCreateStorageFolderTool } from "@/lib/mcp/tools/create-storage-folder";
+import { createSaveStorageFileTool } from "@/lib/mcp/tools/save-storage-file";
 import { createFindCustomEntityRecordTool } from "@/lib/mcp/tools/find-custom-entity-record";
 import { createFindCustomerTool } from "@/lib/mcp/tools/find-customer";
 import { createFindProductTool } from "@/lib/mcp/tools/find-product";
+import { createPopulateDocumentTemplateTool } from "@/lib/mcp/tools/populate-document-template";
 import { createNotifySlackTool } from "@/lib/mcp/tools/notify-slack";
 import { createNotifyTeamsTool } from "@/lib/mcp/tools/notify-teams";
 import { createSearchCustomEntityTool } from "@/lib/mcp/tools/search-custom-entity";
@@ -177,6 +179,29 @@ export async function createMcpServer(
       outputSchema: createStorageFolderTool.outputSchema,
     },
     createStorageFolderTool.handler,
+  );
+
+  const saveStorageFileTool = createSaveStorageFileTool(organisationId);
+  server.registerTool(
+    saveStorageFileTool.name,
+    {
+      description: saveStorageFileTool.description,
+      inputSchema: saveStorageFileTool.inputSchema,
+      outputSchema: saveStorageFileTool.outputSchema,
+    },
+    saveStorageFileTool.handler,
+  );
+
+  const populateDocumentTemplateTool =
+    createPopulateDocumentTemplateTool(organisationId);
+  server.registerTool(
+    populateDocumentTemplateTool.name,
+    {
+      description: populateDocumentTemplateTool.description,
+      inputSchema: populateDocumentTemplateTool.inputSchema,
+      outputSchema: populateDocumentTemplateTool.outputSchema,
+    },
+    populateDocumentTemplateTool.handler,
   );
 
   const sendEmailTool = createSendEmailTool(

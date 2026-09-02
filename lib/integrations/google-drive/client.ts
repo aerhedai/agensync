@@ -93,6 +93,88 @@ export async function ensureFolderPath(
   return parentId;
 }
 
+async function findFile(
+  accessToken: string,
+  name: string,
+  parentId: string,
+): Promise<string | null> {
+  const q = [
+    "mimeType!='application/vnd.google-apps.folder'",
+    `name='${escapeDriveQueryValue(name)}'`,
+    `'${escapeDriveQueryValue(parentId)}' in parents`,
+    "trashed=false",
+  ].join(" and ");
+  const params = new URLSearchParams({ q, fields: "files(id)", pageSize: "1" });
+  const response = await driveFetch(accessToken, `/files?${params.toString()}`);
+  const data = (await response.json()) as { files?: { id: string }[] };
+  return data.files?.[0]?.id ?? null;
+}
+
+export async function downloadFile(
+  accessToken: string,
+  fileId: string,
+): Promise<Buffer> {
+  const response = await driveFetch(accessToken, `/files/${fileId}?alt=media`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+// Walks folders only (never creates any) then finds a file by name inside
+// the deepest one — for reading something a human is expected to have
+// already placed there (e.g. a quote template), where silently creating
+// missing folders would hide a real "wrong path" mistake instead of
+// surfacing it as a clear error.
+export async function resolveAndDownloadFile(
+  accessToken: string,
+  pathSegments: string[],
+): Promise<Buffer> {
+  if (pathSegments.length === 0) {
+    throw new Error("A file path needs at least a filename.");
+  }
+  const folderSegments = pathSegments.slice(0, -1);
+  const filename = pathSegments.at(-1) as string;
+
+  let parentId = "root";
+  for (const segment of folderSegments) {
+    const found = await findFolder(accessToken, segment, parentId);
+    if (!found) {
+      throw new Error(
+        `Folder "${segment}" was not found in "${pathSegments.join("/")}".`,
+      );
+    }
+    parentId = found;
+  }
+  const fileId = await findFile(accessToken, filename, parentId);
+  if (!fileId) {
+    throw new Error(`File "${pathSegments.join("/")}" was not found.`);
+  }
+  return downloadFile(accessToken, fileId);
+}
+
+async function updateFileContent(
+  accessToken: string,
+  fileId: string,
+  content: Buffer,
+): Promise<{ id: string }> {
+  const response = await fetch(
+    `${DRIVE_UPLOAD_BASE}/files/${fileId}?uploadType=media&fields=id`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: new Uint8Array(content),
+    },
+  );
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(
+      `Google Drive content update failed (${response.status}): ${errorBody}`,
+    );
+  }
+  return response.json();
+}
+
 // Multipart upload (Drive API's simple path for files under ~5MB, which
 // covers the email + PDF/photo attachments this is built for — a resumable
 // upload session would be needed for anything larger, not implemented yet).
@@ -132,4 +214,24 @@ export async function uploadFile(
     );
   }
   return response.json();
+}
+
+// replace=true overwrites an existing same-named file's content in place
+// (e.g. "keep only the latest correspondence") instead of creating a
+// second file with the same name, which Drive otherwise allows.
+export async function uploadOrReplaceFile(
+  accessToken: string,
+  folderId: string,
+  filename: string,
+  mimeType: string,
+  content: Buffer,
+  replace = false,
+): Promise<{ id: string }> {
+  if (replace) {
+    const existing = await findFile(accessToken, filename, folderId);
+    if (existing) {
+      return updateFileContent(accessToken, existing, content);
+    }
+  }
+  return uploadFile(accessToken, folderId, filename, mimeType, content);
 }

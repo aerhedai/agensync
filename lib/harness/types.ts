@@ -4,6 +4,12 @@ import type { AIProvider } from "@/lib/ai/provider";
 import type { Agent, Organisation } from "@/lib/generated/prisma/client";
 import type { RunResult } from "@/lib/runtime/agent-runtime";
 
+export interface ResolvedAttachment {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+}
+
 export interface PipelineContext {
   runId: string;
   organisationId: string;
@@ -24,6 +30,13 @@ export interface PipelineContext {
   // form has no separate sender field), where pipelines fall back to
   // extractEmailDeterministically/LLM extraction on `input` instead.
   senderEmail: string | null;
+  // Lazily resolves this run's inbound attachments, if the trigger has any
+  // (undefined for triggers with no natural attachment concept — a
+  // webhook signal, or the manual "Run agent" test form). Only actually
+  // fetches content when a pipeline calls it, so the common case — a
+  // pipeline that doesn't care about attachments at all — never pays for
+  // the extra provider API calls.
+  getAttachments?: () => Promise<ResolvedAttachment[]>;
   mcpClient: Client;
   provider: AIProvider;
   allowedTools: Set<string>;

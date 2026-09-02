@@ -124,6 +124,31 @@ function ProviderSetupNotes({ provider }: { provider: string }) {
     );
   }
 
+  if (provider === "google-drive") {
+    return (
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p>
+          Only sees files and folders Agensync itself creates — never this
+          account&rsquo;s existing Drive. Which folder an agent archives into is
+          set up separately, once that&rsquo;s configured for a workflow.
+        </p>
+      </div>
+    );
+  }
+
+  if (provider === "sharepoint") {
+    return (
+      <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <p>
+          Grants access to every SharePoint site this account can reach — the
+          specific site an agent archives into is set up separately, once
+          that&rsquo;s configured for a workflow. Narrower per-site access
+          isn&rsquo;t available without knowing which site ahead of time.
+        </p>
+      </div>
+    );
+  }
+
   return null;
 }
 

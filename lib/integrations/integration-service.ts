@@ -4,6 +4,7 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 import { refreshAccessToken as refreshGmailAccessToken } from "@/lib/integrations/gmail/oauth";
 import type { GmailTokens } from "@/lib/integrations/gmail/oauth";
+import { refreshAccessToken as refreshGoogleAccessToken } from "@/lib/integrations/google/oauth-core";
 import { refreshAccessToken as refreshMicrosoftAccessToken } from "@/lib/integrations/microsoft/oauth-core";
 import type { OAuthExchangeResult } from "@/lib/integrations/oauth-adapter";
 
@@ -16,6 +17,8 @@ const OUTLOOK_PROVIDER = "outlook";
 const TEAMS_PROVIDER = "teams";
 const OUTLOOK_CALENDAR_PROVIDER = "outlook-calendar";
 const WEBHOOK_PROVIDER = "webhook";
+const GOOGLE_DRIVE_PROVIDER = "google-drive";
+const SHAREPOINT_PROVIDER = "sharepoint";
 
 interface AccessRefreshCredentials {
   accessToken: string;
@@ -324,6 +327,42 @@ export function getValidOutlookCalendarAccessToken(
       "Outlook Calendar is not connected for this organisation. Connect it from Settings.",
     wrongProviderMessage:
       "The bound action account is not an Outlook Calendar account.",
+  });
+}
+
+/** Same shape again, for the Google Drive provider. */
+export function getValidGoogleDriveAccessToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<string> {
+  return getValidAccessToken({
+    organisationId,
+    provider: GOOGLE_DRIVE_PROVIDER,
+    integrationId,
+    parseCredentials: (c) => asAccessRefreshCredentials(c, "Google Drive"),
+    refresh: refreshGoogleAccessToken,
+    notConnectedMessage:
+      "Google Drive is not connected for this organisation. Connect it from Settings.",
+    wrongProviderMessage:
+      "The bound action account is not a Google Drive account.",
+  });
+}
+
+/** Same shape again, for the SharePoint provider. */
+export function getValidSharePointAccessToken(
+  organisationId: string,
+  integrationId?: string | null,
+): Promise<string> {
+  return getValidAccessToken({
+    organisationId,
+    provider: SHAREPOINT_PROVIDER,
+    integrationId,
+    parseCredentials: (c) => asAccessRefreshCredentials(c, "SharePoint"),
+    refresh: refreshMicrosoftAccessToken,
+    notConnectedMessage:
+      "SharePoint is not connected for this organisation. Connect it from Settings.",
+    wrongProviderMessage:
+      "The bound action account is not a SharePoint account.",
   });
 }
 

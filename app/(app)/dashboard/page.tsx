@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { checkInboxAction } from "@/app/dashboard/actions";
+import { checkInboxAction } from "@/app/(app)/dashboard/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,

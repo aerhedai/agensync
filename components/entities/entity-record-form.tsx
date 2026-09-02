@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import {
   createRecordAction,
   type RecordFormState,
-} from "@/app/catalog/entities/[id]/actions";
+} from "@/app/(app)/catalog/entities/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

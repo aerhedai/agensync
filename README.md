@@ -4,7 +4,20 @@ AI-powered business process automation platform. See [`CLAUDE.md`](./CLAUDE.md) 
 
 ## Status
 
-Phase 1 (project foundation) is complete. Phase 2 (database) is underway: core domain models (Organisation, User, Agent, AgentRun, RunStep) exist with a migration and a seed script. No tools, UI, or agent runtime yet — that's Phase 3 onward.
+Live in production at [aperator.com](https://aperator.com), deployed from `main`.
+
+Working today: multi-tenant organisations and users (Clerk), agents with
+per-agent tool grants, workflows that route inbound work through a classifier
+to handler agents, the agent runtime in both LOOP and HARNESS execution modes,
+a deterministic policy engine, human approvals, a full run/step/tool-call audit
+trail, business-defined custom entities, and OAuth integrations for Gmail,
+Outlook, Teams, Slack, Google Drive, SharePoint and Outlook Calendar.
+
+The current architectural direction is **primitives, not verticals** — a small
+fixed set of generic building blocks, with specific business processes
+expressed as templates assembled from them. See [`CLAUDE.md`](./CLAUDE.md)
+sections 3–7 for the seven primitives, the known architectural debt, and the
+roadmap.
 
 ## Prerequisites
 

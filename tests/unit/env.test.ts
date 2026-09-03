@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { envSchema } from "@/lib/env";
 
 const validEnv = {
-  DATABASE_URL: "postgresql://user:pass@localhost:5433/agensync",
+  DATABASE_URL: "postgresql://user:pass@localhost:5433/aperator",
   OLLAMA_BASE_URL: "http://ollama.test:11434",
   AI_PROVIDER: "ollama",
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_dGVzdC1rZXk",

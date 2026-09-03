@@ -2,7 +2,7 @@ import { env } from "@/lib/env";
 import * as googleCore from "@/lib/integrations/google/oauth-core";
 import type { OAuthAdapter } from "@/lib/integrations/oauth-adapter";
 
-// drive.file (not the broad "drive" scope) — Agensync only ever needs to
+// drive.file (not the broad "drive" scope) — Aperator only ever needs to
 // read/write the files and folders it creates itself (an archive folder
 // per client/job), never a business's entire existing Drive. openid+email
 // identify which account connected, the same as every other provider here.

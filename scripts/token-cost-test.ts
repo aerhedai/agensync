@@ -29,7 +29,7 @@ import type {
   AIResponse,
 } from "@/lib/ai/provider";
 
-const TEST_ORG_ID = "cmtg8vtln0000mws73t1av4ov"; // "Agensync Test Org A"
+const TEST_ORG_ID = "cmtg8vtln0000mws73t1av4ov"; // "Aperator Test Org A"
 const TEST_MODEL = "qwen3.5:4b";
 
 class TrackingProvider implements AIProvider {

@@ -23,7 +23,7 @@ const outputSchema = {
  * Unlike notify_slack's bot token, Microsoft Graph has no plain-OAuth
  * equivalent to "post as a bot" for Teams channel messages — delegated
  * ChannelMessage.Send sends as whichever person authorized this
- * connection, not as "Agensync". A real bot identity needs Azure Bot
+ * connection, not as "Aperator". A real bot identity needs Azure Bot
  * Service, a separate, materially bigger piece of infrastructure,
  * deliberately not built here — the tool description says so explicitly
  * so whoever configures an agent with this tool sees it, not just this

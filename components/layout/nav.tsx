@@ -24,7 +24,7 @@ export function Nav() {
   return (
     <nav className="flex items-center gap-1 border-b border-border px-6 py-3">
       <span className="mr-6 text-sm font-semibold tracking-tight">
-        Agensync
+        Aperator
       </span>
       {LINKS.map((link) => {
         const active = pathname.startsWith(link.href);

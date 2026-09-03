@@ -31,7 +31,7 @@ export function MarketingFooter() {
       <div className="mx-auto flex max-w-6xl flex-col gap-12 px-6 py-16 sm:flex-row sm:justify-between">
         <div className="flex flex-col gap-2">
           <span className="text-base font-semibold tracking-tight">
-            Agensync
+            Aperator
           </span>
           <p className="max-w-xs text-sm text-marketing-ink-foreground/60">
             Agentic AI business automation — controlled by rules, gated by
@@ -64,7 +64,7 @@ export function MarketingFooter() {
 
       <div className="border-t border-marketing-ink-foreground/10">
         <div className="mx-auto max-w-6xl px-6 py-6 text-xs text-marketing-ink-foreground/50">
-          © {new Date().getFullYear()} Agensync
+          © {new Date().getFullYear()} Aperator
         </div>
       </div>
     </footer>

@@ -92,7 +92,7 @@ export async function exchangeCodeForTokens(
 
   if (!data.refresh_token) {
     throw new Error(
-      "Google did not return a refresh token — revoke Agensync's access at https://myaccount.google.com/permissions and reconnect so Google issues a fresh one.",
+      "Google did not return a refresh token — revoke Aperator's access at https://myaccount.google.com/permissions and reconnect so Google issues a fresh one.",
     );
   }
 

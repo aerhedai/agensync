@@ -7,7 +7,7 @@ export function MarketingNav() {
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/85 backdrop-blur-md">
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Link href="/" className="text-base font-semibold tracking-tight">
-          Agensync
+          Aperator
         </Link>
 
         <div className="hidden items-center gap-8 text-sm font-medium text-muted-foreground sm:flex">

@@ -185,7 +185,7 @@ export async function uploadFile(
   mimeType: string,
   content: Buffer,
 ): Promise<{ id: string }> {
-  const boundary = `agensync-${Date.now()}`;
+  const boundary = `aperator-${Date.now()}`;
   const metadata = JSON.stringify({ name: filename, parents: [folderId] });
 
   const body = Buffer.concat([

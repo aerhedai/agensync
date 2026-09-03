@@ -184,10 +184,14 @@ needs to scale or harden further:
   Ollama for now without blocking the rest of Phase C on that decision.
 
 **Gmail in production**: the OAuth client's authorized redirect URIs need
-`https://agensync.vercel.app/api/integrations/gmail/callback` added
-manually in Google Cloud Console (Credentials page) — not something the
-Vercel CLI or this repo can do on their own. Vercel's `GOOGLE_REDIRECT_URI`
-is set to that URL for Production only; Preview deployments get a new
+`https://aperator.com/api/integrations/gmail/callback` added manually in
+Google Cloud Console (Credentials page) — not something the Vercel CLI or
+this repo can do on their own. The old
+`https://agensync.vercel.app/api/integrations/gmail/callback` entry should
+be removed there too once the new one is confirmed working, so a stale
+authorized redirect doesn't linger. Vercel's `GOOGLE_REDIRECT_URI` is set
+to the new URL for Production only (updated as part of the Agensync →
+Aperator rename); Preview deployments get a new
 random URL per deployment that's never pre-registered with Google, so
 Gmail OAuth is left unconfigured there (attempting to connect on a Preview
 deployment will fail — expected, not a bug). The OAuth consent screen

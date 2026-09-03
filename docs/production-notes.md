@@ -70,8 +70,10 @@ deliberately kept off whatever gets exposed.
 
 ## Phase C: hosting, database, and a real production Ollama path
 
-Deployed at https://agensync.vercel.app (Vercel, GitHub-connected — pushes
-to `main` auto-deploy) with a Neon Postgres database provisioned via
+Deployed at https://aperator.com (Vercel, GitHub-connected — pushes to
+`main` auto-deploy; the original `agensync.vercel.app` URL still resolves
+too, Vercel kept it as an alias through the project rename) with a Neon
+Postgres database provisioned via
 Vercel's managed integration (`prisma migrate deploy` applied against
 Neon's direct/unpooled connection string; a single connection string is
 used for both migrations and runtime for now — Neon's separate pooled
@@ -113,17 +115,25 @@ same build command for every environment, so this now keeps Production and
 Preview's database schema honest automatically on every deploy, going
 forward, without relying on anyone remembering to run it by hand.
 
-**Clerk is still running in test mode in Production, not fixed yet.** The
-`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` configured for Production is a `pk_test_`
-key — confirmed identical to the key used locally and in Preview. Clerk's
-test instances carry hard usage limits and are explicitly documented as
-unsuitable for a real deployment. Moving to a real Clerk Production
-instance needs a verified custom domain attached first (Clerk requires one
-for cookies to behave correctly across the instance) — the app was still on
-`agensync.vercel.app` when this was first written, with no domain owned yet.
-`aperator.com` has since been registered (via Cloudflare) as part of the
-Agensync → Aperator rename; wiring it into Vercel and Clerk Production is
-the next step, not done yet at the time of writing.
+**Clerk is on a real Production instance now (closed).** `aperator.com` was
+registered (via Cloudflare) as part of the Agensync → Aperator rename, then
+wired up end to end: `aperator.com`/`www.aperator.com` pointed at Vercel
+(plain A records to `76.76.21.21`, Cloudflare proxy off — Vercel needs to
+see the real record to issue its own TLS cert and terminate it itself, and
+proxying adds a redundant edge layer that fights that), then
+`npx clerk@latest deploy` run interactively to create the production
+instance, add the five Clerk-required CNAME records (Frontend API, Accounts
+Portal, and three mail/DKIM records) to Cloudflare, and wait for
+`clerk deploy status` to report `dns`/`ssl`/`mail` all `complete`. Once
+verified, `pk_live_`/`sk_live_` keys were pulled with
+`clerk env pull --instance prod` (to a scratch file, not `.env.local` —
+Production keys don't work on `localhost`, so local dev keeps using its
+`pk_test_`/`sk_test_` keys unchanged) and set on Vercel's Production
+environment only, then a redeploy baked them in. The Clerk _application's_
+own display name (shown on the hosted sign-in/sign-up cards — "Sign in to
+Agensync") was a separate rename, done via the Platform API
+(`PATCH /platform/applications/{id}`), since that name isn't part of this
+repo's code or config at all.
 
 **Ollama stays the AI provider in production, reached through an
 auth-gated proxy, not a hosted commercial API.** Vercel's servers can't

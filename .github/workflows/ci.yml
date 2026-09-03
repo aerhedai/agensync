@@ -9,12 +9,8 @@ env:
   # A real Postgres service (below), not a dummy string — Phase 2's
   # integration tests need an actual database to create/read rows against.
   DATABASE_URL: postgresql://aperator:aperator@localhost:5432/aperator
-  # Ollama is a private Tailscale host CI cannot reach — lib/env.ts only
-  # validates these are shaped correctly, nothing in CI calls Ollama over
-  # the network (the Ollama provider test mocks fetch).
-  OLLAMA_BASE_URL: http://ollama.invalid:11434
-  AI_PROVIDER: ollama
-  # Shape-valid dummy values, same rationale as OLLAMA_BASE_URL above:
+  # Shape-valid dummy values — lib/env.ts's eager parse only needs these
+  # present and correctly shaped, not genuine:
   # lib/env.ts's eager parse and `pnpm build` need these present, but no
   # test or build step ever makes a real Clerk API call or decrypts real
   # data — nothing in CI needs these to be genuine secrets.

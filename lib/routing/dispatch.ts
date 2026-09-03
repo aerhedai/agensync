@@ -1,5 +1,5 @@
+import { getAIProvider } from "@/lib/ai/organisation-ai-provider";
 import type { AIProvider } from "@/lib/ai/provider";
-import { getAIProvider } from "@/lib/ai/get-provider";
 import type { WorkflowTriggerType } from "@/lib/generated/prisma/client";
 import type { ResolvedAttachment } from "@/lib/harness/types";
 import { classifyIntent } from "@/lib/routing/classify-intent";
@@ -41,7 +41,14 @@ export async function dispatchInboundMessage(
   organisationId: string,
   trigger: WorkflowTriggerType,
   input: string,
-  provider: AIProvider = getAIProvider(),
+  // Optional, resolved lazily below — an org with no active workflow at
+  // all (or one whose keyword fast path always resolves routing, and
+  // whose matched handler runs a zero-LLM HARNESS pipeline) never touches
+  // AI provider configuration. Requiring it unconditionally would make
+  // "no workflow configured" indistinguishable from "no AI provider
+  // configured", two different setup gaps a business needs to fix in a
+  // different order. Same reasoning as resumeRun's own optional provider.
+  provider?: AIProvider,
   senderEmail: string | null = null,
   triggerIntegrationId: string | null = null,
   getAttachments?: () => Promise<ResolvedAttachment[]>,
@@ -64,6 +71,19 @@ export async function dispatchInboundMessage(
   if (!classifierMember || handlerMembers.length === 0) {
     return { matched: false, reason: "no_workflow" };
   }
+
+  // Resolved here, not before — everything above this point (no active
+  // workflow, no classifier, no active handler) can return without ever
+  // needing an AI provider. Resolved unconditionally from this point on,
+  // even though the deterministic keyword fast path just below sometimes
+  // means the LLM is never actually called this time — a deliberate
+  // simplification: fully deferring resolution until the exact call that
+  // needs it would mean threading a lazy resolver through classifyIntent
+  // and every HARNESS pipeline instead of a resolved value, for a case
+  // (a workflow exists, its config makes classification keyword-only, and
+  // the matched pipeline happens to be one of the zero-LLM ones) that's
+  // real but narrow.
+  const resolvedProvider = provider ?? (await getAIProvider(organisationId));
 
   // Fast path: a deterministic keyword match skips the LLM classify call
   // entirely. Only falls through to it on ambiguity (see
@@ -88,7 +108,7 @@ export async function dispatchInboundMessage(
         name: m.agent.name,
         description: m.agent.description,
       })),
-      provider,
+      resolvedProvider,
     ));
 
   if (!matchedAgentId) {
@@ -103,7 +123,7 @@ export async function dispatchInboundMessage(
   const run = await runAgentByExecutionMode(
     handler.agent,
     input,
-    provider,
+    resolvedProvider,
     senderEmail,
     getAttachments,
   );

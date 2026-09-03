@@ -1,12 +1,12 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import { getAIProvider } from "@/lib/ai/get-provider";
 import type {
   AIMessage,
   AIProvider,
   AIToolCallRequest,
   AIToolDefinition,
 } from "@/lib/ai/provider";
+import { getAIProvider } from "@/lib/ai/organisation-ai-provider";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import * as approvalRepository from "@/lib/approvals/approval-repository";
 import { prisma } from "@/lib/db/prisma";
@@ -289,7 +289,7 @@ async function runLoop(context: LoopContext): Promise<RunResult> {
 export async function runAgent(
   agent: Agent,
   input: string,
-  provider: AIProvider = getAIProvider(),
+  provider: AIProvider,
 ): Promise<RunResult> {
   const run = await runRepository.createRun(
     agent.organisationId,
@@ -353,7 +353,14 @@ export async function resumeRun(
   organisationId: string,
   decision: "APPROVED" | "REJECTED",
   approverId: string,
-  provider: AIProvider = getAIProvider(),
+  // Optional, unlike runAgent's — REJECTED and a HARNESS-mode APPROVED
+  // both return before ever needing one (see the LOOP-continuation branch
+  // below, the only place it's actually used). Requiring it unconditionally
+  // would force every reject click to have an AI provider configured for
+  // no reason. Resolved lazily, only if execution actually reaches that
+  // branch and the caller didn't already supply one (tests inject a
+  // scripted provider directly; real callers rely on this fallback).
+  provider?: AIProvider,
 ): Promise<RunResult> {
   const run = await runRepository.findRunById(organisationId, runId);
   if (!run || run.status !== "WAITING_FOR_APPROVAL") {
@@ -468,7 +475,7 @@ export async function resumeRun(
       messages,
       tools,
       allowedTools,
-      provider,
+      provider: provider ?? (await getAIProvider(organisationId)),
       mcpClient,
     });
   } catch (error) {

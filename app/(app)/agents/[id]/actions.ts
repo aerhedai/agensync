@@ -4,6 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import * as agentService from "@/lib/agents/agent-service";
+import {
+  AIProviderNotConfiguredError,
+  getAIProvider,
+} from "@/lib/ai/organisation-ai-provider";
 import type { AgentStatus } from "@/lib/generated/prisma/client";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import { runAgentByExecutionMode } from "@/lib/runtime/run-agent-by-mode";
@@ -28,7 +32,17 @@ export async function runAgentAction(
     notFound();
   }
 
-  const result = await runAgentByExecutionMode(agent, input.trim());
+  let provider;
+  try {
+    provider = await getAIProvider(organisation.id);
+  } catch (error) {
+    if (error instanceof AIProviderNotConfiguredError) {
+      return { error: error.message };
+    }
+    throw error;
+  }
+
+  const result = await runAgentByExecutionMode(agent, input.trim(), provider);
   redirect(`/runs/${result.runId}`);
 }
 

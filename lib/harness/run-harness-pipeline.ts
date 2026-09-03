@@ -1,4 +1,3 @@
-import { getAIProvider } from "@/lib/ai/get-provider";
 import type { AIProvider } from "@/lib/ai/provider";
 import * as agentToolRepository from "@/lib/agents/agent-tool-repository";
 import type { Agent } from "@/lib/generated/prisma/client";
@@ -18,7 +17,7 @@ import type { RunResult } from "@/lib/runtime/agent-runtime";
 export async function runHarnessPipeline(
   agent: Agent,
   input: string,
-  provider: AIProvider = getAIProvider(),
+  provider: AIProvider,
   senderEmail: string | null = null,
   getAttachments?: () => Promise<ResolvedAttachment[]>,
 ): Promise<RunResult> {

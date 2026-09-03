@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { getAIProvider } from "@/lib/ai/get-provider";
 import { parseJsonResponse } from "@/lib/ai/json-extraction";
 import type { AIProvider } from "@/lib/ai/provider";
 
@@ -36,7 +35,7 @@ export async function classifyIntent(
   classifier: ClassifierAgent,
   input: string,
   candidates: AgentCandidate[],
-  provider: AIProvider = getAIProvider(),
+  provider: AIProvider,
 ): Promise<string | null> {
   if (candidates.length === 0) return null;
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getAIProvider } from "@/lib/ai/get-provider";
+import { AIProviderNotConfiguredError } from "@/lib/ai/organisation-ai-provider";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { dispatchInboundMessage } from "@/lib/routing/dispatch";
 
@@ -102,14 +102,22 @@ export async function POST(
       null)
     : null;
 
-  const result = await dispatchInboundMessage(
-    verified.organisationId,
-    "WEBHOOK",
-    input,
-    getAIProvider(),
-    senderEmail,
-    integrationId,
-  );
+  let result;
+  try {
+    result = await dispatchInboundMessage(
+      verified.organisationId,
+      "WEBHOOK",
+      input,
+      undefined,
+      senderEmail,
+      integrationId,
+    );
+  } catch (error) {
+    if (error instanceof AIProviderNotConfiguredError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    throw error;
+  }
 
   if (!result.matched) {
     return NextResponse.json({ matched: false, reason: result.reason });

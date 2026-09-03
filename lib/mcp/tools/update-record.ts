@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import * as entityRecordRepository from "@/lib/entities/entity-record-repository";
+import * as entityRecordService from "@/lib/entities/entity-record-service";
+import { InvalidReferenceError } from "@/lib/entities/references";
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 import type { ToolName } from "@/lib/mcp/tool-registry";
 import {
@@ -50,7 +51,7 @@ export function createUpdateRecordTool(organisationId: string) {
     }) => {
       try {
         const type = await resolveWritableType(organisationId, recordType);
-        const record = await entityRecordRepository.updateRecordData(
+        const record = await entityRecordService.updateRecordChecked(
           organisationId,
           recordId,
           data,
@@ -66,6 +67,9 @@ export function createUpdateRecordTool(organisationId: string) {
           },
         });
       } catch (error) {
+        if (error instanceof InvalidReferenceError) {
+          return toolError(error.message);
+        }
         const message = await describeRecordTypeError(organisationId, error);
         if (message) return toolError(message);
         throw error;

@@ -2,6 +2,7 @@ import { runAcknowledgeReplyPipeline } from "@/lib/harness/pipelines/acknowledge
 import { runEntityCorrespondenceArchivePipeline } from "@/lib/harness/pipelines/entity-correspondence-archive-pipeline";
 import { runEntityStatusSignalPipeline } from "@/lib/harness/pipelines/entity-status-signal-pipeline";
 import { runQuotePipeline } from "@/lib/harness/pipelines/quote-pipeline";
+import { runStepsPipeline } from "@/lib/harness/pipelines/steps-pipeline";
 import type { Pipeline } from "@/lib/harness/types";
 
 // Pipelines are code, not data — Agent.pipelineKey (a plain string column,
@@ -15,6 +16,11 @@ import type { Pipeline } from "@/lib/harness/types";
 // used to be two separate, nearly-identical pipeline files ("complaints"
 // and "general") once it became clear that's all they really were.
 const PIPELINES: Record<string, Pipeline> = {
+  // The generic one — runs this agent's own configured step sequence
+  // rather than a shape fixed in code (docs/agent-step-engine-design.md).
+  // Every entry below it is a fixed shape that will become a template of
+  // steps as agents migrate onto this.
+  steps: runStepsPipeline,
   quote: runQuotePipeline,
   acknowledge_reply: runAcknowledgeReplyPipeline,
   entity_status_signal: runEntityStatusSignalPipeline,

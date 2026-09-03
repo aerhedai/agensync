@@ -10,6 +10,13 @@ import * as entityTypeService from "@/lib/entities/entity-type-service";
 // behave correctly for the catalog to be genuinely business-configurable
 // (create, rename, add/remove fields, delete a type and everything under
 // it, delete one record), not just business-seedable once.
+// A plain required text field, written the way the entity type form
+// submits one. Typed fields added `type` and `required`; this keeps these
+// tests terse while still exercising the real parsed shape.
+function textField(name: string, description: string) {
+  return { name, description, type: "text" as const, required: true };
+}
+
 describe("custom entity catalog CRUD", () => {
   const organisationId = "test-org-entity-crud";
   const otherOrganisationId = "test-org-entity-crud-other";
@@ -61,16 +68,16 @@ describe("custom entity catalog CRUD", () => {
       {
         name: "Property",
         fields: [
-          { name: "address", description: "the property's full address" },
-          { name: "tenant", description: "the current tenant's name" },
+          textField("address", "the property's full address"),
+          textField("tenant", "the current tenant's name"),
         ],
       },
     );
 
     expect(entityType.name).toBe("Property");
     expect(entityType.fields).toEqual([
-      { name: "address", description: "the property's full address" },
-      { name: "tenant", description: "the current tenant's name" },
+      textField("address", "the property's full address"),
+      textField("tenant", "the current tenant's name"),
     ]);
   });
 
@@ -79,7 +86,7 @@ describe("custom entity catalog CRUD", () => {
       organisationId,
       {
         name: "Job",
-        fields: [{ name: "jobId", description: "the job id" }],
+        fields: [textField("jobId", "the job id")],
       },
     );
 
@@ -89,8 +96,8 @@ describe("custom entity catalog CRUD", () => {
       {
         name: "Job Record",
         fields: [
-          { name: "jobId", description: "the job id" },
-          { name: "rootFolder", description: "the archive root folder" },
+          textField("jobId", "the job id"),
+          textField("rootFolder", "the archive root folder"),
         ],
       },
     );
@@ -110,8 +117,8 @@ describe("custom entity catalog CRUD", () => {
       {
         name: "Case",
         fields: [
-          { name: "caseId", description: "the case id" },
-          { name: "notes", description: "free-text notes" },
+          textField("caseId", "the case id"),
+          textField("notes", "free-text notes"),
         ],
       },
     );
@@ -123,7 +130,7 @@ describe("custom entity catalog CRUD", () => {
 
     await entityTypeService.updateEntityType(organisationId, entityType.id, {
       name: "Case",
-      fields: [{ name: "caseId", description: "the case id" }],
+      fields: [textField("caseId", "the case id")],
     });
 
     const records = await entityRecordService.listRecords(
@@ -142,13 +149,13 @@ describe("custom entity catalog CRUD", () => {
   it("does not update an entity type belonging to a different organisation", async () => {
     const entityType = await entityTypeService.createEntityType(
       organisationId,
-      { name: "Property", fields: [{ name: "address", description: "x" }] },
+      { name: "Property", fields: [textField("address", "x")] },
     );
 
     const updated = await entityTypeService.updateEntityType(
       otherOrganisationId,
       entityType.id,
-      { name: "Hijacked", fields: [{ name: "address", description: "x" }] },
+      { name: "Hijacked", fields: [textField("address", "x")] },
     );
 
     expect(updated).toBe(false);
@@ -162,7 +169,7 @@ describe("custom entity catalog CRUD", () => {
   it("deleting an entity type cascades to its records", async () => {
     const entityType = await entityTypeService.createEntityType(
       organisationId,
-      { name: "Case", fields: [{ name: "caseId", description: "x" }] },
+      { name: "Case", fields: [textField("caseId", "x")] },
     );
     await entityRecordService.createRecord(organisationId, entityType.id, {
       caseId: "C-1",
@@ -191,7 +198,7 @@ describe("custom entity catalog CRUD", () => {
   it("does not delete an entity type belonging to a different organisation", async () => {
     const entityType = await entityTypeService.createEntityType(
       organisationId,
-      { name: "Property", fields: [{ name: "address", description: "x" }] },
+      { name: "Property", fields: [textField("address", "x")] },
     );
 
     const deleted = await entityTypeService.deleteEntityType(
@@ -210,7 +217,7 @@ describe("custom entity catalog CRUD", () => {
   it("deletes one record without affecting its siblings", async () => {
     const entityType = await entityTypeService.createEntityType(
       organisationId,
-      { name: "Case", fields: [{ name: "caseId", description: "x" }] },
+      { name: "Case", fields: [textField("caseId", "x")] },
     );
     const keep = await entityRecordService.createRecord(
       organisationId,
@@ -239,7 +246,7 @@ describe("custom entity catalog CRUD", () => {
   it("does not delete a record belonging to a different organisation", async () => {
     const entityType = await entityTypeService.createEntityType(
       organisationId,
-      { name: "Case", fields: [{ name: "caseId", description: "x" }] },
+      { name: "Case", fields: [textField("caseId", "x")] },
     );
     const record = await entityRecordService.createRecord(
       organisationId,

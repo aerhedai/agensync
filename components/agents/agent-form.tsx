@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EntityCorrespondenceArchiveFields } from "@/components/agents/entity-correspondence-archive-fields";
+import { StepProgrammeFields } from "@/components/agents/step-programme-fields";
 import {
   EntityStatusSignalFields,
   type EntityTypeOption,
@@ -59,6 +60,12 @@ const CATEGORY_TYPE_OPTIONS: {
       "Zero LLM calls. Triggered by a webhook (e.g. a Power Automate flow) reporting a status change on one of your catalog types — creates folders, sends an email, and/or notifies Teams depending on the new status.",
   },
   {
+    value: "steps",
+    label: "Custom steps (advanced)",
+    description:
+      "Build the sequence yourself from steps — extract, look up, compute, branch, compose, act. Anything the fixed options above do, plus the things they can't (filing an email as a record, pricing from your own data). Only extract and compose cost tokens; the rest are free.",
+  },
+  {
     value: "entity_correspondence_archive",
     label: "Archive correspondence (email)",
     description:
@@ -71,7 +78,8 @@ function deriveCategoryType(agent?: AgentFormValues): CategoryType {
   if (agent.executionMode !== "HARNESS") return "loop";
   if (
     agent.pipelineKey === "entity_status_signal" ||
-    agent.pipelineKey === "entity_correspondence_archive"
+    agent.pipelineKey === "entity_correspondence_archive" ||
+    agent.pipelineKey === "steps"
   ) {
     return agent.pipelineKey;
   }
@@ -103,6 +111,7 @@ export function AgentForm({
   gmailIntegrations = [],
   initialEntityStatusSignalConfig,
   initialEntityCorrespondenceArchiveConfig,
+  initialStepsConfig,
 }: {
   action: (
     prevState: AgentFormState,
@@ -126,6 +135,10 @@ export function AgentForm({
   // server-only code: Prisma, the MCP client, etc.).
   initialEntityStatusSignalConfig?: EntityStatusSignalConfig;
   initialEntityCorrespondenceArchiveConfig?: EntityCorrespondenceArchiveConfig;
+  // The agent's existing step programme, when editing one already on the
+  // steps pipeline. Raw rather than typed: it round-trips through the JSON
+  // editor and is validated server-side against the runtime schema.
+  initialStepsConfig?: Record<string, unknown>;
 }) {
   const [state, formAction] = useActionState<AgentFormState, FormData>(
     action,
@@ -329,6 +342,17 @@ export function AgentForm({
             entityTypes={entityTypes}
             initial={initialEntityStatusSignalConfig}
           />
+          {state.fieldErrors?.pipelineConfig && (
+            <p className="text-sm text-destructive">
+              {state.fieldErrors.pipelineConfig[0]}
+            </p>
+          )}
+        </div>
+      )}
+
+      {categoryType === "steps" && (
+        <div className="flex flex-col gap-2">
+          <StepProgrammeFields initial={initialStepsConfig} />
           {state.fieldErrors?.pipelineConfig && (
             <p className="text-sm text-destructive">
               {state.fieldErrors.pipelineConfig[0]}

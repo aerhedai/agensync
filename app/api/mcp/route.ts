@@ -1,4 +1,4 @@
-// Disabled. This route exposed Agensync's MCP tool server (find_customer,
+// Disabled. This route exposed Aperator's MCP tool server (find_customer,
 // find_product, check_inventory, calculate_quote, send_email) directly over
 // HTTP with no authentication, and — worse — no gating: the approval-gate
 // and audit-trail logic (lib/runtime/tool-execution.ts's

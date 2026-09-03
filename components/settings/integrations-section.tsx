@@ -112,7 +112,7 @@ function ProviderSetupNotes({ provider }: { provider: string }) {
       <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
         <p>
           Messages post as whichever person connects this account — not as a
-          separate &ldquo;Agensync&rdquo; bot. A real bot identity would need
+          separate &ldquo;Aperator&rdquo; bot. A real bot identity would need
           Microsoft&rsquo;s separate Bot Service, which this doesn&rsquo;t use.
         </p>
         <p className="mt-2">
@@ -128,7 +128,7 @@ function ProviderSetupNotes({ provider }: { provider: string }) {
     return (
       <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
         <p>
-          Only sees files and folders Agensync itself creates — never this
+          Only sees files and folders Aperator itself creates — never this
           account&rsquo;s existing Drive. Which folder an agent archives into is
           set up separately, once that&rsquo;s configured for a workflow.
         </p>

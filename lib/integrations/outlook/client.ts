@@ -6,7 +6,7 @@ const GRAPH_ME_BASE = "https://graph.microsoft.com/v1.0/me";
 // this folder is ever read or processed. Outlook has no direct label
 // equivalent; a folder is the closest analogue since Outlook rules move
 // mail into folders as their primary automation mechanism.
-export const OUTLOOK_INBOX_FOLDER = "Agensync";
+export const OUTLOOK_INBOX_FOLDER = "Aperator";
 
 async function graphFetch(
   accessToken: string,

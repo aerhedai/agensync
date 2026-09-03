@@ -65,7 +65,7 @@ export async function GET() {
     workflows,
   };
 
-  const filename = `agensync-export-${organisationId}-${
+  const filename = `aperator-export-${organisationId}-${
     new Date().toISOString().split("T")[0]
   }.json`;
 

@@ -18,7 +18,7 @@ export function Hero() {
             </span>
           </h1>
           <p className="max-w-lg text-lg text-muted-foreground text-pretty">
-            Agensync agents read what comes in, decide what needs to happen, act
+            Aperator agents read what comes in, decide what needs to happen, act
             through the tools you allow, and stop for a human before anything
             consequential goes out. Every step is recorded.
           </p>

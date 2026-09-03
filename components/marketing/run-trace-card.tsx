@@ -18,7 +18,7 @@ const STEPS: { label: string; detail: string; tone?: "success" | "warning" }[] =
   ];
 
 // The signature element of the landing page: a real run trace, not a
-// decorative screenshot. This is what actually makes Agensync not a
+// decorative screenshot. This is what actually makes Aperator not a
 // chatbot — every step here is inspectable, and the "Approval requested"
 // row is real: a mutating action pauses for a human by default (see
 // lib/policies/policy-engine.ts), it isn't sales copy.

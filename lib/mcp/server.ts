@@ -49,7 +49,7 @@ export async function createMcpServer(
   organisationId: string,
   actionIntegrationId?: string | null,
 ): Promise<McpServer> {
-  const server = new McpServer({ name: "agensync-tools", version: "0.1.0" });
+  const server = new McpServer({ name: "aperator-tools", version: "0.1.0" });
 
   const actionIntegrationProvider = actionIntegrationId
     ? ((

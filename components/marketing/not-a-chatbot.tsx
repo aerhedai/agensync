@@ -28,7 +28,7 @@ export function NotAChatbot() {
         </h2>
         <p className="mt-4 text-lg text-muted-foreground text-pretty">
           Most &ldquo;AI agent&rdquo; products are a chat window with a system
-          prompt. Agensync is built the other way round: business logic and
+          prompt. Aperator is built the other way round: business logic and
           permissions come first, and the model works inside them.
         </p>
       </div>

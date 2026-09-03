@@ -18,7 +18,7 @@ describe("listUnreadInboxMessages", () => {
     vi.unstubAllGlobals();
   });
 
-  it("queries only mail labelled with the Agensync inbox label, not the whole inbox", async () => {
+  it("queries only mail labelled with the Aperator inbox label, not the whole inbox", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ messages: [{ id: "msg-1" }] }), {

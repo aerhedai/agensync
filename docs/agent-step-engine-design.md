@@ -1,7 +1,9 @@
 # Design: Step-Based Agents and Unified Record Types
 
-Status: **proposed, not built.** Written for review before implementation,
-per CLAUDE.md §29.
+Status: **partially built.** The step engine — schema, compute evaluator,
+condition evaluator, runner, and the `steps` pipeline — is implemented and
+tested (35 tests). The agent form, the template model and the catalog
+collapse are specified here but not built.
 
 This proposes replacing the fixed "Category type" choice on the agent form
 with a composable list of steps, and collapsing the three-way catalog into
@@ -118,10 +120,11 @@ Generality is preserved because the _sequence_ is unconstrained. The
 narrowing that makes an agent reliable comes from its own step list, not
 from a menu the platform imposes.
 
-### 2.2 Proposed step schema
+### 2.2 Step schema
 
 Stored in `Agent.pipelineConfig` (already a JSON bag with per-shape Zod
-validation — this extends that pattern rather than adding a column):
+validation — this extends that pattern rather than adding a column). As
+built, in `lib/harness/steps/schema.ts`:
 
 ```ts
 type Step =
@@ -130,13 +133,34 @@ type Step =
       kind: "lookup";
       as: string;
       recordType: string;
-      match: { field: string; from: string } | { query: string };
+      match:
+        | { by: "field"; field: string; value: Operand }
+        | { by: "search"; query: Operand };
+      required: boolean; // default false
     }
-  | { kind: "compute"; as: string; expression: string }
-  | { kind: "branch"; when: Condition; then: Step[]; else?: Step[] }
-  | { kind: "compose"; as: string; instructions: string }
-  | { kind: "act"; tool: ToolName; args: Record<string, string> };
+  | {
+      kind: "compute";
+      as: string;
+      operation: ComputeOperation;
+      operands: Operand[];
+    }
+  | { kind: "branch"; when: Condition; then: Step[]; otherwise: Step[] }
+  | { kind: "compose"; as: string; instructions: string; facts: string[] }
+  | { kind: "act"; tool: ToolName; args: Record<string, ArgValue> };
 ```
+
+Two things changed from the first draft, both because building it
+surfaced a real gap:
+
+- **`compute` takes a named operation plus operands**, not a free-text
+  `expression`. A general expression parser was the original sketch; a
+  closed operation set is safer (no interpreter to secure) and produces
+  specific errors like `multiply: "{missing}" is not a number` rather than
+  a mystery NaN.
+- **`act` arguments nest** (`ArgValue` = operand | array | object). The
+  flat string-only shape could not call `create_record`, whose `data` is
+  an object of business-defined fields, or `save_file`, whose `path` is an
+  array. Caught by the first integration test that tried it.
 
 `{placeholder}` interpolation against named values resolves references
 between steps — the same mechanism `entity_status_signal` already uses for
@@ -230,18 +254,42 @@ keywords still pays a full LLM classification call to make a decision with
 one possible answer. Fix: if there is exactly one active handler, route to
 it without calling the model.
 
-### 5.3 Honesty about the large number
+### 5.3 Measured, not predicted
 
-The step-engine saving is **predicted, not measured.** The reasoning is
-sound (85% of current cost is prompt, and this removes the two largest
-prompt components), but this codebase has already been surprised once:
-removing a single orienting sentence from an agent's instructions caused
-4/4 tool-call failures in live testing. Trimming prompts is not reliably
-free.
+An earlier draft of this section said the saving was predicted and must
+not be claimed until measured. It has now been measured.
 
-Therefore the first template built under this design must be measured
-head-to-head against the equivalent LOOP agent on the same inputs, using
-`scripts/token-cost-test.ts`, before the saving is claimed anywhere.
+`scripts/step-vs-loop-tokens.ts` runs the same task — pull an invoice
+number and total out of an email and file them as a record — twice against
+the same real model, once as a LOOP agent and once as a step programme.
+Both complete successfully and produce the same record.
+
+```
+model: qwen2.5:14b            (warm; a cold first run adds ~37s to LOOP)
+
+LOOP    calls=2  prompt=1094  completion=71  total=1165  ms=1425
+STEPS   calls=1  prompt=90    completion=22  total=112   ms=339
+
+STEPS uses 90.4% fewer tokens for this task.
+```
+
+Where the difference comes from, both as predicted: **one LLM call instead
+of two** (sequencing is code, so no turn is spent deciding what to do
+next), and **1094 → 90 prompt tokens** (no tool schemas, no accumulated
+conversation).
+
+Honest limits on that number:
+
+- **One task, one model, one run each.** Directional, not a benchmark.
+- **This is the best case for steps.** The task needs no `compose`, so
+  steps make a single `extract` call. A reply-writing task adds a compose
+  call to the step version and would narrow the gap.
+- **It is not evidence that LOOP is never worth it.** LOOP still handles
+  work whose sequence genuinely is not known in advance; this measures the
+  case where it _is_ known and was being paid for anyway.
+- The cold-start figure (39s vs 0.4s) is a local single-GPU model-loading
+  artifact, not a hosted cost — same caveat as the classifier-model
+  finding in docs/production-notes.md.
 
 ---
 

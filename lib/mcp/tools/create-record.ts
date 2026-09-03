@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import * as entityRecordRepository from "@/lib/entities/entity-record-repository";
-import type { Prisma } from "@/lib/generated/prisma/client";
+import * as entityRecordService from "@/lib/entities/entity-record-service";
+import { InvalidReferenceError } from "@/lib/entities/references";
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 import type { ToolName } from "@/lib/mcp/tool-registry";
 import {
@@ -57,10 +57,13 @@ export function createCreateRecordTool(organisationId: string) {
     }) => {
       try {
         const type = await resolveWritableType(organisationId, recordType);
-        const record = await entityRecordRepository.createRecord(
+        // Goes through the service, not the repository, so a reference
+        // field pointing at a nonexistent, wrong-typed, or another
+        // organisation's record is rejected rather than stored.
+        const record = await entityRecordService.createRecordChecked(
           organisationId,
           type.id,
-          data as Prisma.InputJsonValue,
+          data,
         );
         return toolSuccess({
           record: {
@@ -70,6 +73,9 @@ export function createCreateRecordTool(organisationId: string) {
           },
         });
       } catch (error) {
+        if (error instanceof InvalidReferenceError) {
+          return toolError(error.message);
+        }
         const message = await describeRecordTypeError(organisationId, error);
         if (message) return toolError(message);
         throw error;

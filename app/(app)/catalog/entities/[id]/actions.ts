@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import * as entityRecordService from "@/lib/entities/entity-record-service";
+import type { Prisma } from "@/lib/generated/prisma/client";
 import * as entityTypeService from "@/lib/entities/entity-type-service";
 import {
   buildRecordDataSchema,
@@ -53,7 +54,10 @@ export async function createRecordAction(
   await entityRecordService.createRecord(
     organisation.id,
     entityTypeId,
-    parsed.data,
+    // buildRecordDataSchema's per-type transforms (currency rounding,
+    // date -> ISO) widen the parsed result, so the same InputJsonValue
+    // cast the repository layer already uses applies here too.
+    parsed.data as Prisma.InputJsonValue,
   );
   redirect(`/catalog/entities/${entityTypeId}`);
 }

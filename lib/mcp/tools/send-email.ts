@@ -91,7 +91,7 @@ async function resolveAttachment(
  * not raw bytes passed as a tool argument — nothing generating a tool call
  * (model or pipeline) can conjure real file content out of nothing; it can
  * only point at something that already exists (e.g. what
- * save_storage_file/create_storage_folder produced earlier in the same
+ * save_file/create_folder produced earlier in the same
  * pipeline).
  */
 export function createSendEmailTool(

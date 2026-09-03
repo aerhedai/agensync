@@ -15,8 +15,8 @@ describe("requiresApprovalBeforeExecution", () => {
   });
 
   it("does not require approval for internal-only notification tools", () => {
-    expect(requiresApprovalBeforeExecution("notify_slack")).toBe(false);
-    expect(requiresApprovalBeforeExecution("notify_teams")).toBe(false);
+    expect(requiresApprovalBeforeExecution("notify_channel")).toBe(false);
+    expect(requiresApprovalBeforeExecution("notify_channel")).toBe(false);
   });
 
   it("does not require approval for read-only lookup/calculation tools", () => {

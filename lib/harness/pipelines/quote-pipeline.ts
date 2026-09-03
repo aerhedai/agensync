@@ -21,25 +21,28 @@ const fieldsSchema = z.object({
   customerEmail: z.string().nullable(),
 });
 
-interface FoundProduct {
+interface ResolvedRecord {
   id: string;
-  name: string;
-  unitPrice: number;
-}
-
-interface QuoteResult {
-  total: number;
-  unitPrice: number;
-  currency: string;
+  type: string;
+  data: Record<string, unknown>;
 }
 
 /**
  * The Quote Agent's job is almost entirely deterministic: given a product
- * and quantity, the sequence is always find_customer -> find_product ->
- * check_inventory -> calculate_quote. There's no real decision happening
- * in that sequence — it was only ever a "decision" in LOOP mode because
- * the model had to re-derive it turn by turn, which is exactly where the
- * aborted-tool-call bugs came from. Here it's just code.
+ * and quantity, look up the customer and product, price it, and propose a
+ * reply. There's no real decision happening in that sequence — it was only
+ * ever a "decision" in LOOP mode because the model had to re-derive it
+ * turn by turn, which is exactly where the aborted-tool-call bugs came
+ * from. Here it's just code.
+ *
+ * Pricing is arithmetic done inline rather than through a tool. There used
+ * to be a `calculate_quote` tool doing exactly this multiplication, but
+ * multiplying two numbers this pipeline already holds is not a
+ * *capability* an agent needs granting — it was a vertical concept
+ * occupying a slot in a registry every business has to read (CLAUDE.md
+ * §3, §4.5). Stock is likewise just a field on the product record now,
+ * rather than a separate check_inventory round-trip whose result this
+ * pipeline discarded anyway.
  */
 export const runQuotePipeline: Pipeline = async (context) => {
   const fields = await extractFields(
@@ -62,40 +65,47 @@ export const runQuotePipeline: Pipeline = async (context) => {
 
   let customerName: string | null = null;
   if (email) {
-    const customerResult = await callTool(context, "find_customer", {
-      query: email,
+    const customerResult = await callTool(context, "find_record", {
+      recordType: "Customer",
+      field: "email",
+      value: email,
     });
     if (!customerResult.isError && customerResult.structuredContent?.found) {
-      customerName = (
-        customerResult.structuredContent.customer as { name: string }
-      ).name;
+      const record = customerResult.structuredContent
+        .record as ResolvedRecord | null;
+      const name = record?.data.name;
+      customerName = typeof name === "string" ? name : null;
     }
   }
 
-  const productResult = await callTool(context, "find_product", {
+  const productResult = await callTool(context, "search_records", {
+    recordType: "Product",
     query: fields.product,
   });
-  if (productResult.isError || !productResult.structuredContent?.found) {
+  const productRecord = productResult.isError
+    ? null
+    : ((
+        productResult.structuredContent?.records as ResolvedRecord[] | undefined
+      )?.[0] ?? null);
+  if (!productRecord) {
     return failPipeline(
       context,
       `Could not find a product matching "${fields.product}".`,
     );
   }
-  const product = productResult.structuredContent.product as FoundProduct;
 
-  await callTool(context, "check_inventory", { productId: product.id });
-
-  const quoteResult = await callTool(context, "calculate_quote", {
-    productId: product.id,
-    quantity: fields.quantity,
-  });
-  if (quoteResult.isError || !quoteResult.structuredContent) {
+  const productName = String(productRecord.data.name ?? fields.product);
+  const unitPrice = Number(productRecord.data.unitPrice);
+  if (!Number.isFinite(unitPrice)) {
     return failPipeline(
       context,
-      "Could not calculate a quote for this product and quantity.",
+      `Product "${productName}" has no usable unit price to quote from.`,
     );
   }
-  const quote = quoteResult.structuredContent as unknown as QuoteResult;
+  // Rounded to whole pence rather than left as a raw float — the same
+  // reasoning that makes Product.unitPrice a Decimal in the schema.
+  const total = Math.round(unitPrice * fields.quantity * 100) / 100;
+  const stockQuantity = Number(productRecord.data.stockQuantity);
 
   if (!email) {
     return failPipeline(
@@ -104,7 +114,7 @@ export const runQuotePipeline: Pipeline = async (context) => {
     );
   }
 
-  const symbol = currencySymbol(quote.currency);
+  const symbol = currencySymbol(context.organisation.currency);
   const body = await composeReply(
     context,
     withBusinessGuidance(
@@ -115,10 +125,13 @@ export const runQuotePipeline: Pipeline = async (context) => {
       customerName
         ? `Customer: ${customerName}`
         : 'Customer name: unknown — do not invent or placeholder one, open with "Hello,"',
-      `Product: ${product.name}`,
+      `Product: ${productName}`,
       `Quantity: ${fields.quantity}`,
-      `Unit price: ${symbol}${quote.unitPrice}`,
-      `Total: ${symbol}${quote.total}`,
+      `Unit price: ${symbol}${unitPrice}`,
+      `Total: ${symbol}${total}`,
+      Number.isFinite(stockQuantity)
+        ? `Units currently in stock: ${stockQuantity}`
+        : null,
     ]
       .filter((line): line is string => line !== null)
       .join("\n"),
@@ -128,7 +141,7 @@ export const runQuotePipeline: Pipeline = async (context) => {
     toolName: context.agent.actionTool,
     args: {
       to: email,
-      subject: `Quote for ${fields.quantity} x ${product.name}`,
+      subject: `Quote for ${fields.quantity} x ${productName}`,
       body,
     },
   });

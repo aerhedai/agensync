@@ -27,7 +27,7 @@ export type DispatchResult =
  * email address can accidentally collide with a keyword (found live: an
  * address containing "price" silently routed every message to the Quote
  * Agent, regardless of content). The sender goes through `senderEmail`
- * instead, used only for identification (find_customer / reply-to) by the
+ * instead, used only for identification (customer lookup / reply-to) by the
  * harness pipelines — it never influences what a message is classified as
  * or what gets extracted from it.
  *

@@ -21,7 +21,7 @@ export function EntityCorrespondenceArchiveFields({
   entityTypes: EntityTypeOption[];
   initial?: EntityCorrespondenceArchiveConfig;
 }) {
-  const [entityType, setEntityType] = useState(initial?.entityType ?? "");
+  const [recordType, setRecordType] = useState(initial?.recordType ?? "");
   const [keyField, setKeyField] = useState(initial?.keyField ?? "");
   const [rootFolderField, setRootFolderField] = useState(
     initial?.rootFolderField ?? "",
@@ -30,7 +30,7 @@ export function EntityCorrespondenceArchiveFields({
     initial?.provider ?? "google-drive",
   );
 
-  const fields = entityTypes.find((e) => e.name === entityType)?.fields ?? [];
+  const fields = entityTypes.find((e) => e.name === recordType)?.fields ?? [];
 
   return (
     <div className="flex flex-col gap-4 rounded-md border border-border p-3">
@@ -42,12 +42,12 @@ export function EntityCorrespondenceArchiveFields({
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="flex flex-1 flex-col gap-1">
-          <Label htmlFor="ecaEntityType">Catalog type</Label>
+          <Label htmlFor="ecaRecordType">Catalog type</Label>
           <select
-            id="ecaEntityType"
-            name="ecaEntityType"
-            value={entityType}
-            onChange={(e) => setEntityType(e.target.value)}
+            id="ecaRecordType"
+            name="ecaRecordType"
+            value={recordType}
+            onChange={(e) => setRecordType(e.target.value)}
             className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
           >
             <option value="">Select a catalog type…</option>

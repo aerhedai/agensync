@@ -32,7 +32,7 @@ export function WorkflowForm({
   // being empty means "connect a webhook account from Settings first."
   webhookIntegrations?: { id: string; name: string }[];
   // Offered as the optional trigger account when EMAIL is selected — left
-  // unset, this workflow uses the organisation's default Gmail account
+  // unset, this workflow uses the organisation's default email account
   // (today's only behavior before this field existed).
   gmailIntegrations?: { id: string; name: string }[];
 }) {
@@ -118,7 +118,7 @@ export function WorkflowForm({
           <option value="" disabled={trigger === "WEBHOOK"}>
             {trigger === "WEBHOOK"
               ? "Select a connected webhook account…"
-              : "Organisation's default Gmail account"}
+              : "Organisation's default email account"}
           </option>
           {accountOptions.map((integration) => (
             <option key={integration.id} value={integration.id}>

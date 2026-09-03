@@ -35,10 +35,10 @@ describe("entity_status_signal pipeline", () => {
       },
     });
     const tools = overrides.tools ?? [
-      "find_custom_entity_record",
-      "create_custom_entity_record",
-      "update_custom_entity_record",
-      "create_storage_folder",
+      "find_record",
+      "create_record",
+      "update_record",
+      "create_folder",
       "send_email",
     ];
     await prisma.agentTool.createMany({
@@ -94,7 +94,7 @@ describe("entity_status_signal pipeline", () => {
   it("creates a record on first sight of a key, with no configured transition it just completes", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {},
@@ -118,7 +118,7 @@ describe("entity_status_signal pipeline", () => {
   it("updates the same record rather than duplicating it on a second signal for the same key", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {},
@@ -155,7 +155,7 @@ describe("entity_status_signal pipeline", () => {
   it("fails clearly when the input isn't a JSON object", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {},
@@ -194,7 +194,7 @@ describe("entity_status_signal pipeline", () => {
   it("fails clearly when the signal is missing the configured key or status field", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {},
@@ -220,7 +220,7 @@ describe("entity_status_signal pipeline", () => {
   it("attempts folder creation for a configured transition, and fails clearly when storage isn't connected", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {
@@ -247,7 +247,7 @@ describe("entity_status_signal pipeline", () => {
       include: { steps: { include: { toolCall: true } } },
     });
     const folderCall = run.steps.find(
-      (s) => s.toolCall?.toolName === "create_storage_folder",
+      (s) => s.toolCall?.toolName === "create_folder",
     );
     expect(folderCall?.toolCall?.status).toBe("FAILED");
     expect(folderCall?.toolCall?.error).toMatch(
@@ -258,7 +258,7 @@ describe("entity_status_signal pipeline", () => {
   it("proposes send_email for approval when the transition configures it", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {
@@ -300,7 +300,7 @@ describe("entity_status_signal pipeline", () => {
   it("fails clearly when the record has no valid email for the configured toField", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {
@@ -327,12 +327,12 @@ describe("entity_status_signal pipeline", () => {
   it("respects per-agent tool restriction — a disallowed tool is refused, not silently used", async () => {
     const agent = await createAgent({
       pipelineConfig: {
-        entityType: "Job",
+        recordType: "Job",
         keyField: "jobId",
         statusField: "status",
         transitions: {},
       },
-      tools: ["find_custom_entity_record"], // missing create_custom_entity_record
+      tools: ["find_record"], // missing create_record
     });
 
     const result = await runHarnessPipeline(
@@ -347,7 +347,7 @@ describe("entity_status_signal pipeline", () => {
       include: { steps: { include: { toolCall: true } } },
     });
     const createCall = run.steps.find(
-      (s) => s.toolCall?.toolName === "create_custom_entity_record",
+      (s) => s.toolCall?.toolName === "create_record",
     );
     expect(createCall?.toolCall?.error).toMatch(/does not have access/i);
   });

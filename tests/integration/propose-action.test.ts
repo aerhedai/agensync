@@ -48,7 +48,7 @@ describe("proposeAction", () => {
       },
     });
     await prisma.agentTool.createMany({
-      data: ["find_customer", "send_email"].map((toolName) => ({
+      data: ["find_record", "send_email"].map((toolName) => ({
         agentId: agent.id,
         toolName,
       })),
@@ -124,11 +124,15 @@ describe("proposeAction", () => {
         senderEmail: null,
         mcpClient,
         provider: { generateResponse: async () => ({ content: "" }) },
-        allowedTools: new Set(["find_customer", "send_email"]),
+        allowedTools: new Set(["find_record", "send_email"]),
       },
       {
-        toolName: "find_customer",
-        args: { query: "test@propose-action.test" },
+        toolName: "find_record",
+        args: {
+          recordType: "Customer",
+          field: "email",
+          value: "test@propose-action.test",
+        },
       },
     );
 

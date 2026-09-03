@@ -70,7 +70,7 @@ describe("acknowledge_reply pipeline", () => {
       },
     });
     await prisma.agentTool.createMany({
-      data: ["find_customer", "send_email"].map((toolName) => ({
+      data: ["find_record", "send_email"].map((toolName) => ({
         agentId: caseAgent.id,
         toolName,
       })),
@@ -133,14 +133,14 @@ describe("acknowledge_reply pipeline", () => {
           {
             name: "propertyAddress",
             description: "the property address if mentioned",
-            lookupEntityType: "Property",
+            lookupRecordType: "Property",
           },
         ],
         guardrailKeywords: [],
       },
     });
     await prisma.agentTool.createMany({
-      data: ["search_custom_entity", "send_email"].map((toolName) => ({
+      data: ["search_records", "send_email"].map((toolName) => ({
         agentId: propertyAgent.id,
         toolName,
       })),
@@ -195,10 +195,12 @@ describe("acknowledge_reply pipeline", () => {
     // find_customer was called with the structural senderEmail, not
     // anything scraped from free text.
     const customerLookup = await prisma.toolCall.findFirst({
-      where: { agentRunId: result.runId, toolName: "find_customer" },
+      where: { agentRunId: result.runId, toolName: "find_record" },
     });
     expect(customerLookup?.input).toMatchObject({
-      query: "jordan@case-customer.test",
+      recordType: "Customer",
+      field: "email",
+      value: "jordan@case-customer.test",
     });
   });
 
@@ -269,10 +271,10 @@ describe("acknowledge_reply pipeline", () => {
     expect(result.status).toBe("WAITING_FOR_APPROVAL");
 
     const lookup = await prisma.toolCall.findFirst({
-      where: { agentRunId: result.runId, toolName: "search_custom_entity" },
+      where: { agentRunId: result.runId, toolName: "search_records" },
     });
     expect(lookup?.input).toMatchObject({
-      entityType: "Property",
+      recordType: "Property",
       query: "14 Birch Road",
     });
     expect(lookup?.output).toMatchObject({
@@ -297,7 +299,7 @@ describe("acknowledge_reply pipeline", () => {
     expect(result.status).toBe("WAITING_FOR_APPROVAL");
 
     const lookup = await prisma.toolCall.findFirst({
-      where: { agentRunId: result.runId, toolName: "search_custom_entity" },
+      where: { agentRunId: result.runId, toolName: "search_records" },
     });
     expect(lookup).toBeNull();
   });

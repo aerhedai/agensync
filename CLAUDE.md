@@ -444,23 +444,49 @@ Rules for templates:
 
 An audit found one repeated pattern: **a specific thing was built, a
 generic successor was later built that subsumes it, and the predecessor
-was never retired.** Both live side by side.
+was never retired.** Most of that has now been unwound.
 
-| Legacy (specific) | Generic successor | Action |
+## Done
+
+| Legacy (specific) | Now |
+|---|---|
+| `find_customer`, `find_product`, `check_inventory`, `find_custom_entity_record`, `search_custom_entity` | `find_record` / `search_records`, taking a record type as a parameter |
+| `calculate_quote` | Deleted. Arithmetic the quote pipeline does inline — never a capability |
+| `check_inventory` | Deleted. Stock is an ordinary field on the Product record |
+| `notify_slack`, `notify_teams` | One `notify_channel` with a `platform` parameter |
+| `create_/update_custom_entity_record` | `create_record` / `update_record` |
+| `create_storage_folder`, `save_storage_file`, `populate_document_template` | `create_folder`, `save_file`, `populate_template` |
+| `pipelineConfig.entityType`, `extractionFields[].lookupEntityType` | `recordType` / `lookupRecordType` — one word for one concept |
+
+Sixteen tools became eleven, covering strictly more ground.
+`lib/records/record-service.ts` is what made it possible: built-in
+(`Product`/`Customer`) and business-defined types resolve through one
+uniform `{id, type, data}` envelope, so the tool layer no longer knows or
+cares which table a record lives in.
+
+`send_email` and `notify_channel` deliberately did **not** merge into a
+single "send a message" tool. An outbound customer email and an internal
+chat notification are different consequence classes, and the approval gate
+depends on telling them apart (§4.6).
+
+## Still open
+
+| Legacy | Generic successor | Blocked on |
 |---|---|---|
-| `find_product`, `find_customer`, `check_inventory` | `find_/search_custom_entity_record` | Merge into `find_records`/`search_records` |
-| `calculate_quote` | — | Delete. It is arithmetic plus a policy, not a capability |
-| `send_email`, `notify_slack`, `notify_teams` | — | Merge into one `send_message` with a channel parameter |
-| `extractionFields`, `guardrailKeywords`, `replySubjectTemplate`, `actionTool` (named columns) | `pipelineConfig` (JSON) | Fold the four columns into `pipelineConfig` |
-| `quote` pipeline (bespoke chain) | `acknowledge_reply` (config-driven) | Re-express as a template |
-| `Product`, `Customer` tables | `CustomEntityType` | Eventually seeded Record Types, not privileged tables |
+| `Product`, `Customer` tables | `CustomEntityType` | Typed Record Type fields (§4.3) |
+| `extractionFields`, `guardrailKeywords`, `replySubjectTemplate`, `actionTool` (named `Agent` columns) | `pipelineConfig` (JSON) | Nothing — mechanical, just not done yet |
+| `quote` pipeline (bespoke chain) | A template | Templates being real (§6) |
 
-`entity_status_signal` and `entity_correspondence_archive` are the model
-for how this should be done: neutrally named, config-driven via
-`pipelineConfig`, and usable by any business. New pipelines follow that
-pattern.
+Writes to `Product`/`Customer` are refused rather than half-supported:
+an untyped bag from a model cannot safely populate a `Decimal` column, so
+`BuiltInRecordTypeError` says so plainly instead of silently coercing.
+That asymmetry disappears when those tables become ordinary record types.
 
-**Sequencing matters.** Do not consolidate before the primitives are
+`entity_status_signal` and `entity_correspondence_archive` remain the
+model for how a pipeline should be built: neutrally named, config-driven
+via `pipelineConfig`, usable by any business.
+
+**Sequencing still matters.** Do not consolidate before the primitives are
 strong enough to absorb what is being deleted. Collapsing `Product` into
 `CustomEntityType` today would replace a real `Decimal` price with an
 untyped string — a downgrade. Correct order:
@@ -469,7 +495,7 @@ untyped string — a downgrade. Correct order:
 1. Typed Record Type fields  (4.3)
 2. Policies as data          (4.6)
 3. SCHEDULE trigger          (4.2)
-4. Then consolidate per the table above
+4. Then the remaining consolidation above
 ```
 
 ---

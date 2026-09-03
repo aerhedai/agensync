@@ -51,7 +51,7 @@ const transitionSchema = z.object({
 // that could drift from what's enforced at runtime.
 export const pipelineConfigSchema = z.object({
   // Which CustomEntityType this pipeline tracks, e.g. "Job".
-  entityType: z.string().min(1),
+  recordType: z.string().min(1),
   // Which field on that entity uniquely identifies a record, e.g. "jobId"
   // — used to find-or-create rather than always creating a new record.
   keyField: z.string().min(1),
@@ -105,7 +105,7 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
   if (!configResult.success) {
     return failPipeline(
       context,
-      "This agent's pipelineConfig is missing or invalid — set entityType, keyField, statusField, and transitions.",
+      "This agent's pipelineConfig is missing or invalid — set recordType, keyField, statusField, and transitions.",
     );
   }
   const config = configResult.data;
@@ -119,8 +119,8 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
     );
   }
 
-  const found = await callTool(context, "find_custom_entity_record", {
-    entityType: config.entityType,
+  const found = await callTool(context, "find_record", {
+    recordType: config.recordType,
     field: config.keyField,
     value: String(keyValue),
   });
@@ -136,13 +136,13 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
     : null;
 
   const writeResult = existing
-    ? await callTool(context, "update_custom_entity_record", {
-        entityType: config.entityType,
+    ? await callTool(context, "update_record", {
+        recordType: config.recordType,
         recordId: existing.id,
         data: payload,
       })
-    : await callTool(context, "create_custom_entity_record", {
-        entityType: config.entityType,
+    : await callTool(context, "create_record", {
+        recordType: config.recordType,
         data: payload,
       });
   if (writeResult.isError || !writeResult.structuredContent) {
@@ -177,7 +177,7 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
     const paths =
       subfolders.length > 0 ? subfolders.map((sub) => [root, sub]) : [[root]];
     for (const path of paths) {
-      const folderResult = await callTool(context, "create_storage_folder", {
+      const folderResult = await callTool(context, "create_folder", {
         provider,
         siteName,
         path,
@@ -193,9 +193,10 @@ export const runEntityStatusSignalPipeline: Pipeline = async (context) => {
 
   if (transition.notifyTeams) {
     const { teamId, channelId, messageTemplate } = transition.notifyTeams;
-    const notifyResult = await callTool(context, "notify_teams", {
+    const notifyResult = await callTool(context, "notify_channel", {
+      platform: "teams",
       teamId,
-      channelId,
+      channel: channelId,
       message: interpolate(messageTemplate, templateData),
     });
     if (notifyResult.isError) {

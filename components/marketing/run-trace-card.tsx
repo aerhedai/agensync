@@ -4,10 +4,9 @@ const STEPS: { label: string; detail: string; tone?: "success" | "warning" }[] =
       label: "Input received",
       detail: "500 units of Product A for Customer ABC",
     },
-    { label: "find_customer", detail: "Customer ABC — found" },
-    { label: "find_product", detail: "Product A — found" },
-    { label: "check_inventory", detail: "700 units available" },
-    { label: "calculate_quote", detail: "£7,500" },
+    { label: "find_record", detail: "Customer ABC — found" },
+    { label: "search_records", detail: "Product A — £15.00, 700 in stock" },
+    { label: "Priced", detail: "500 x £15.00 = £7,500" },
     {
       label: "Approval requested",
       detail: "send_email needs a human",

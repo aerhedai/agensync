@@ -21,7 +21,7 @@ export const envSchema = z.object({
   // path, so it needs its own redirect URI — same shape as the Microsoft
   // vars below.
   GOOGLE_DRIVE_REDIRECT_URI: z.url().optional(),
-  // Optional: Slack integration (notify_slack), same treatment as the
+  // Optional: Slack integration (notify_channel), same treatment as the
   // Google vars above — the rest of the app runs fine without these, only
   // /settings' "Add Slack account" flow needs them.
   SLACK_CLIENT_ID: z.string().optional(),
@@ -40,7 +40,7 @@ export const envSchema = z.object({
   MICROSOFT_CALENDAR_REDIRECT_URI: z.url().optional(),
   MICROSOFT_SHAREPOINT_REDIRECT_URI: z.url().optional(),
   // Optional: used to build absolute links back into the app (e.g. a
-  // notify_teams message linking to /approvals) — nothing breaks without
+  // notify_channel message linking to /approvals) — nothing breaks without
   // it, the link is just omitted. Not derived from the request the way
   // OAuth callback routes derive their own base URL, since a pipeline has
   // no request to derive it from.

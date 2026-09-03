@@ -40,13 +40,13 @@ describe("parseEntityStatusSignalConfig", () => {
         esTransitionNotifyTeamsChannelId: [""],
         esTransitionNotifyTeamsMessageTemplate: [""],
       },
-      { esEntityType: "Job", esKeyField: "jobId", esStatusField: "status" },
+      { esRecordType: "Job", esKeyField: "jobId", esStatusField: "status" },
     );
 
     const config = parseEntityStatusSignalConfig(formData);
 
     expect(config).toMatchObject({
-      entityType: "Job",
+      recordType: "Job",
       keyField: "jobId",
       statusField: "status",
       transitions: {
@@ -125,7 +125,7 @@ describe("parseEntityCorrespondenceArchiveConfig", () => {
     const formData = formDataFromRows(
       {},
       {
-        ecaEntityType: "Job",
+        ecaRecordType: "Job",
         ecaKeyField: "jobId",
         ecaSubjectPattern: "\\[Job #([A-Za-z0-9-]+)\\]",
         ecaProvider: "google-drive",
@@ -140,7 +140,7 @@ describe("parseEntityCorrespondenceArchiveConfig", () => {
 
     expect(config.siteName).toBeUndefined();
     expect(config).toMatchObject({
-      entityType: "Job",
+      recordType: "Job",
       keyField: "jobId",
       subjectPattern: "\\[Job #([A-Za-z0-9-]+)\\]",
       provider: "google-drive",
@@ -154,7 +154,7 @@ describe("parseEntityCorrespondenceArchiveConfig", () => {
     const formData = formDataFromRows(
       {},
       {
-        ecaEntityType: "Job",
+        ecaRecordType: "Job",
         ecaKeyField: "jobId",
         ecaSubjectPattern: "\\[Job #([A-Za-z0-9-]+)\\]",
         ecaProvider: "sharepoint",
@@ -174,7 +174,7 @@ describe("parseEntityCorrespondenceArchiveConfig", () => {
 describe("validatePipelineConfig", () => {
   it("returns an error for entity_status_signal when required fields are missing", () => {
     const result = validatePipelineConfig("entity_status_signal", {
-      entityType: "",
+      recordType: "",
       keyField: "",
       statusField: "",
       transitions: {},
@@ -185,7 +185,7 @@ describe("validatePipelineConfig", () => {
 
   it("returns the validated config for a well-formed entity_status_signal submission", () => {
     const result = validatePipelineConfig("entity_status_signal", {
-      entityType: "Job",
+      recordType: "Job",
       keyField: "jobId",
       statusField: "status",
       transitions: {
@@ -204,7 +204,7 @@ describe("validatePipelineConfig", () => {
 
   it("returns an error for entity_correspondence_archive with an empty subjectPattern", () => {
     const result = validatePipelineConfig("entity_correspondence_archive", {
-      entityType: "Job",
+      recordType: "Job",
       keyField: "jobId",
       subjectPattern: "",
       provider: "google-drive",
@@ -218,7 +218,7 @@ describe("validatePipelineConfig", () => {
 
   it("returns an empty config for category types with no structured pipelineConfig", () => {
     const result = validatePipelineConfig("acknowledge_reply", {
-      entityType: "should be ignored",
+      recordType: "should be ignored",
     });
 
     expect(result).toEqual({ config: {} });

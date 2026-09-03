@@ -2,7 +2,7 @@ const POINTS = [
   {
     label: "Tools, not free text",
     detail:
-      "An agent can only call the tools you've explicitly granted it — find_customer, calculate_quote, send_email. It can't do anything you haven't wired up.",
+      "An agent can only call the tools you've explicitly granted it — find_record, create_record, send_email. It can't do anything you haven't wired up.",
   },
   {
     label: "Policy, not vibes",

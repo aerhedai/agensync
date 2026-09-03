@@ -130,7 +130,7 @@ export async function exchangeCodeForTokens(
 
   if (!data.refresh_token) {
     throw new Error(
-      "Microsoft did not return a refresh token — remove Agensync's access at https://myaccount.microsoft.com/ and reconnect so Microsoft issues a fresh one.",
+      "Microsoft did not return a refresh token — remove Aperator's access at https://myaccount.microsoft.com/ and reconnect so Microsoft issues a fresh one.",
     );
   }
 

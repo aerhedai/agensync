@@ -18,7 +18,7 @@ export async function connectMcpClient(
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
 
-  const client = new Client({ name: "agensync-runtime", version: "0.1.0" });
+  const client = new Client({ name: "aperator-runtime", version: "0.1.0" });
   await Promise.all([
     server.connect(serverTransport),
     client.connect(clientTransport),

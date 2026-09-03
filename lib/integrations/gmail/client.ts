@@ -10,7 +10,7 @@ const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 // emails (newsletters, security alerts) instead of just the one test quote
 // request. See CLAUDE.md #14: scope/permission boundaries are deterministic
 // application logic, not something left to the LLM's judgement.
-export const GMAIL_INBOX_LABEL = "Agensync";
+export const GMAIL_INBOX_LABEL = "Aperator";
 
 async function gmailFetch(
   accessToken: string,
@@ -196,7 +196,7 @@ function encodeMimeMessage(params: {
     return Buffer.from(message).toString("base64url");
   }
 
-  const boundary = `agensync_${Date.now()}`;
+  const boundary = `aperator_${Date.now()}`;
   const lines = [
     `To: ${params.to}`,
     `Subject: ${params.subject}`,

@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: agensync
-      POSTGRES_PASSWORD: agensync
-      POSTGRES_DB: agensync
+      POSTGRES_USER: aperator
+      POSTGRES_PASSWORD: aperator
+      POSTGRES_DB: aperator
     ports:
       # Host port 5433, not 5432 — this machine already has other local
       # Postgres installs (Homebrew, Postgres.app) bound to localhost:5432.
@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agensync -d agensync"]
+      test: ["CMD-SHELL", "pg_isready -U aperator -d aperator"]
       interval: 5s
       timeout: 5s
       retries: 5

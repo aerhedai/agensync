@@ -8,7 +8,7 @@ on:
 env:
   # A real Postgres service (below), not a dummy string — Phase 2's
   # integration tests need an actual database to create/read rows against.
-  DATABASE_URL: postgresql://agensync:agensync@localhost:5432/agensync
+  DATABASE_URL: postgresql://aperator:aperator@localhost:5432/aperator
   # Ollama is a private Tailscale host CI cannot reach — lib/env.ts only
   # validates these are shaped correctly, nothing in CI calls Ollama over
   # the network (the Ollama provider test mocks fetch).
@@ -50,13 +50,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: agensync
-          POSTGRES_PASSWORD: agensync
-          POSTGRES_DB: agensync
+          POSTGRES_USER: aperator
+          POSTGRES_PASSWORD: aperator
+          POSTGRES_DB: aperator
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U agensync -d agensync"
+          --health-cmd "pg_isready -U aperator -d aperator"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5

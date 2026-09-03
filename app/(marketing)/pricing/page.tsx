@@ -12,7 +12,7 @@ export default function PricingPage() {
         We&rsquo;re early — pricing is tailored to your business.
       </h1>
       <p className="text-lg text-muted-foreground">
-        Agensync isn&rsquo;t on a fixed price list yet. Get started and
+        Aperator isn&rsquo;t on a fixed price list yet. Get started and
         we&rsquo;ll work out what fits, based on the processes you actually want
         automated.
       </p>

@@ -56,7 +56,7 @@ first" placeholder. Two deliberate simplifications worth knowing about:
 
 ## External MCP HTTP endpoint disabled
 
-`app/api/mcp/route.ts` used to expose Agensync's MCP tool server directly
+`app/api/mcp/route.ts` used to expose Aperator's MCP tool server directly
 over HTTP with no authentication and no approval-gate enforcement — a real
 caller could invoke `send_email` directly, bypassing the approval/audit
 system entirely. Found by a security audit; confirmed nothing in the app
@@ -119,10 +119,11 @@ key — confirmed identical to the key used locally and in Preview. Clerk's
 test instances carry hard usage limits and are explicitly documented as
 unsuitable for a real deployment. Moving to a real Clerk Production
 instance needs a verified custom domain attached first (Clerk requires one
-for cookies to behave correctly across the instance) — deliberately not
-done yet, since no production domain has been chosen (still on
-`agensync.vercel.app`). Revisit together: domain choice, then Clerk
-Production instance, then updating Vercel's Production Clerk keys.
+for cookies to behave correctly across the instance) — the app was still on
+`agensync.vercel.app` when this was first written, with no domain owned yet.
+`aperator.com` has since been registered (via Cloudflare) as part of the
+Agensync → Aperator rename; wiring it into Vercel and Clerk Production is
+the next step, not done yet at the time of writing.
 
 **Ollama stays the AI provider in production, reached through an
 auth-gated proxy, not a hosted commercial API.** Vercel's servers can't

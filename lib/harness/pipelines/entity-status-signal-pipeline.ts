@@ -33,7 +33,7 @@ const transitionSchema = z.object({
     .optional(),
   // Deliberately not a Teams-native interactive card (no Bot Service —
   // same reasoning as the Teams integration's own "posts as the connecting
-  // person" limitation). The message links back to Agensync's own
+  // person" limitation). The message links back to Aperator's own
   // Approvals page instead via the {approvalUrl} placeholder, so approving
   // still happens in the one place that already has the real approval UI.
   notifyTeams: z

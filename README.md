@@ -1,4 +1,4 @@
-# Agensync
+# Aperator
 
 AI-powered business process automation platform. See [`CLAUDE.md`](./CLAUDE.md) for the full product and engineering specification, and the [project board](https://github.com/orgs/aerhedai/projects/4) for what's done and what's next.
 
@@ -15,8 +15,8 @@ Phase 1 (project foundation) is complete. Phase 2 (database) is underway: core d
 ## Setup
 
 ```bash
-git clone https://github.com/aerhedai/agensync.git
-cd agensync
+git clone https://github.com/aerhedai/aperator.git
+cd aperator
 
 pnpm install          # also generates the Prisma client (postinstall)
 cp .env.example .env.local

@@ -223,7 +223,7 @@ export default async function DashboardPage({
                   </div>
                 ))}
                 <p className="pt-2 text-xs text-muted-foreground">
-                  Only reads mail routed into the Agensync label/folder, and
+                  Only reads mail routed into the Aperator label/folder, and
                   routes each email to whichever agent&apos;s description best
                   matches it — see Settings.
                 </p>

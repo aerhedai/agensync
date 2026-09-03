@@ -8,7 +8,7 @@ export default function PrivacyPage() {
         Privacy Policy
       </h1>
       <p className="text-lg text-muted-foreground">
-        We&rsquo;re still writing this. Agensync is early-stage, and we&rsquo;d
+        We&rsquo;re still writing this. Aperator is early-stage, and we&rsquo;d
         rather publish a real privacy policy than a placeholder that reads like
         one. If you need something in writing before you sign up, get in touch.
       </p>

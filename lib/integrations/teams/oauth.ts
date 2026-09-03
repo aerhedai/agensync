@@ -37,7 +37,7 @@ export function exchangeTeamsCode(
 /**
  * Teams messages sent through this connection appear as sent by whichever
  * person authorized it (delegated ChannelMessage.Send has no plain-OAuth
- * "post as a bot" equivalent to Slack's bot token — a real "Agensync"
+ * "post as a bot" equivalent to Slack's bot token — a real "Aperator"
  * identity needs Azure Bot Service, a separate, materially bigger piece of
  * infrastructure, deliberately not built here). This is stated in the
  * Settings UI copy for this provider, not just here.

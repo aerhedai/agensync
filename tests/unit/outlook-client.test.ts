@@ -8,7 +8,7 @@ import {
 } from "@/lib/integrations/outlook/client";
 
 // Regression test mirroring the Gmail label-scoping one (CLAUDE.md #14):
-// unread messages must only ever be queried from the dedicated Agensync
+// unread messages must only ever be queried from the dedicated Aperator
 // folder, never the whole mailbox — locks in the same deterministic scope
 // boundary Outlook's client is meant to enforce.
 describe("listUnreadOutlookMessages", () => {
@@ -16,7 +16,7 @@ describe("listUnreadOutlookMessages", () => {
     vi.unstubAllGlobals();
   });
 
-  it("resolves the Agensync folder id first, then scopes the unread query to it", async () => {
+  it("resolves the Aperator folder id first, then scopes the unread query to it", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/mailFolders?")) {

@@ -72,13 +72,10 @@ describe("harness pipeline", () => {
       },
     });
     await prisma.agentTool.createMany({
-      data: [
-        "find_customer",
-        "find_product",
-        "check_inventory",
-        "calculate_quote",
-        "send_email",
-      ].map((toolName) => ({ agentId: quoteAgent.id, toolName })),
+      data: ["find_record", "search_records", "send_email"].map((toolName) => ({
+        agentId: quoteAgent.id,
+        toolName,
+      })),
     });
 
     restrictedQuoteAgent = await prisma.agent.create({
@@ -93,11 +90,12 @@ describe("harness pipeline", () => {
         pipelineKey: "quote",
       },
     });
-    // Deliberately missing calculate_quote and send_email.
+    // Deliberately missing search_records (the product lookup) and send_email.
     await prisma.agentTool.createMany({
-      data: ["find_customer", "find_product", "check_inventory"].map(
-        (toolName) => ({ agentId: restrictedQuoteAgent.id, toolName }),
-      ),
+      data: ["find_record"].map((toolName) => ({
+        agentId: restrictedQuoteAgent.id,
+        toolName,
+      })),
     });
 
     approver = await prisma.user.create({
@@ -163,22 +161,20 @@ describe("harness pipeline", () => {
     expect(run.steps.map((s) => s.stepType)).toEqual([
       "INPUT_RECEIVED",
       "AGENT_DECISION", // extraction
-      "TOOL_CALL", // find_customer
-      "TOOL_CALL", // find_product
-      "TOOL_CALL", // check_inventory
-      "TOOL_CALL", // calculate_quote
+      "TOOL_CALL", // find_record  (customer)
+      "TOOL_CALL", // search_records (product)
       "AGENT_DECISION", // compose
       "APPROVAL_REQUESTED",
     ]);
 
     // Tool sequencing was entirely deterministic — no LLM decided which
-    // tool to call, so exactly these four, in this order, every time.
+    // tool to call, so exactly these two, in this order, every time.
+    // Pricing is arithmetic the pipeline does inline, so it is no longer a
+    // tool call at all (CLAUDE.md §3).
     const toolSteps = run.steps.filter((s) => s.stepType === "TOOL_CALL");
     expect(toolSteps.map((s) => s.toolCall?.toolName)).toEqual([
-      "find_customer",
-      "find_product",
-      "check_inventory",
-      "calculate_quote",
+      "find_record",
+      "search_records",
     ]);
     expect(toolSteps.every((s) => s.toolCall?.status === "SUCCESS")).toBe(true);
 
@@ -299,10 +295,10 @@ describe("harness pipeline", () => {
       provider,
     );
 
-    // find_customer/find_product/check_inventory all succeed (granted);
-    // calculate_quote is refused (not granted), which the pipeline treats
-    // as a failed step and stops — the fixed sequence doesn't bypass
-    // AgentTool just because it's hardcoded in code.
+    // find_record succeeds (granted); search_records — the product lookup —
+    // is refused (not granted), which the pipeline treats as a failed step
+    // and stops. The fixed sequence doesn't bypass AgentTool just because
+    // it's hardcoded in code.
     expect(result.status).toBe("FAILED");
 
     const toolCalls = await prisma.toolCall.findMany({
@@ -310,13 +306,11 @@ describe("harness pipeline", () => {
       orderBy: { createdAt: "asc" },
     });
     expect(toolCalls.map((t) => [t.toolName, t.status])).toEqual([
-      ["find_customer", "SUCCESS"],
-      ["find_product", "SUCCESS"],
-      ["check_inventory", "SUCCESS"],
-      ["calculate_quote", "FAILED"],
+      ["find_record", "SUCCESS"],
+      ["search_records", "FAILED"],
     ]);
     expect(
-      toolCalls.find((t) => t.toolName === "calculate_quote")?.error,
+      toolCalls.find((t) => t.toolName === "search_records")?.error,
     ).toMatch(/does not have access/i);
   });
 });

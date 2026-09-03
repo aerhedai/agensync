@@ -21,7 +21,7 @@ import {
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 import type { ToolName } from "@/lib/mcp/tool-registry";
 
-const TOOL_NAME: ToolName = "populate_document_template";
+const TOOL_NAME: ToolName = "populate_template";
 
 const inputSchema = {
   provider: z.enum(["google-drive", "sharepoint"]),
@@ -80,9 +80,9 @@ const DOCX_MIME_TYPE =
  * configuring a template and configuring an email subject/body template
  * both use the same, single syntax. Not approval-gated: producing a
  * document isn't itself customer-visible until something (e.g. send_email)
- * actually sends it — same reasoning as create_storage_folder.
+ * actually sends it — same reasoning as create_folder.
  */
-export function createPopulateDocumentTemplateTool(organisationId: string) {
+export function createPopulateTemplateTool(organisationId: string) {
   return {
     name: TOOL_NAME,
     description:

@@ -94,7 +94,7 @@ export function parseEntityStatusSignalConfig(
   });
 
   return {
-    entityType: formData.get("esEntityType"),
+    recordType: formData.get("esRecordType"),
     keyField: formData.get("esKeyField"),
     statusField: formData.get("esStatusField"),
     transitions,
@@ -106,7 +106,7 @@ export function parseEntityCorrespondenceArchiveConfig(
 ): Record<string, unknown> {
   const siteName = formData.get("ecaSiteName");
   return {
-    entityType: formData.get("ecaEntityType"),
+    recordType: formData.get("ecaRecordType"),
     keyField: formData.get("ecaKeyField"),
     subjectPattern: formData.get("ecaSubjectPattern"),
     provider: formData.get("ecaProvider"),

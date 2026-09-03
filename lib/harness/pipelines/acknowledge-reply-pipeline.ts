@@ -28,10 +28,10 @@ import type { Pipeline } from "@/lib/harness/types";
  * of a separate TypeScript file per category.
  *
  * Deliberately NOT a general tool-chaining engine: every lookup here
- * (find_customer, plus one search_custom_entity call per extraction field
- * configured with a lookupEntityType) is independent and flat — keyed off
+ * (find_record, plus one search_records call per extraction field
+ * configured with a lookupRecordType) is independent and flat — keyed off
  * a value already in hand, never off another lookup's result the way
- * Quote's find_product -> check_inventory -> calculate_quote is a real
+ * Quote's product lookup -> pricing -> reply is a real
  * dependent chain. A category that genuinely needs that kind of
  * multi-step lookup still needs its own coded pipeline (CLAUDE.md
  * #24/#30 — no generic workflow-node engine yet); this covers the "read
@@ -77,14 +77,18 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
   }
 
   let customerName: string | null = null;
-  if (context.allowedTools.has("find_customer")) {
-    const customerResult = await callTool(context, "find_customer", {
-      query: email,
+  if (context.allowedTools.has("find_record")) {
+    const customerResult = await callTool(context, "find_record", {
+      recordType: "Customer",
+      field: "email",
+      value: email,
     });
     if (!customerResult.isError && customerResult.structuredContent?.found) {
-      customerName = (
-        customerResult.structuredContent.customer as { name: string }
-      ).name;
+      const record = customerResult.structuredContent.record as {
+        data: Record<string, unknown>;
+      } | null;
+      const name = record?.data.name;
+      customerName = typeof name === "string" ? name : null;
     }
   }
 
@@ -100,14 +104,14 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
   // Deliberately not chained (this field's lookup never feeds another
   // field's lookup) — see this file's own top-of-file comment on why.
   const entityFacts: string[] = [];
-  if (context.allowedTools.has("search_custom_entity")) {
+  if (context.allowedTools.has("search_records")) {
     for (const field of configuredFields) {
-      if (!field.lookupEntityType) continue;
+      if (!field.lookupRecordType) continue;
       const value = fields?.[field.name];
       if (!value) continue;
 
-      const result = await callTool(context, "search_custom_entity", {
-        entityType: field.lookupEntityType,
+      const result = await callTool(context, "search_records", {
+        recordType: field.lookupRecordType,
         query: value,
       });
       if (result.isError || !result.structuredContent?.found) continue;
@@ -122,7 +126,7 @@ export const runAcknowledgeReplyPipeline: Pipeline = async (context) => {
         .map(([key, val]) => `${key}: ${val}`)
         .join(", ");
       entityFacts.push(
-        `${field.lookupEntityType} record found: ${recordFacts}`,
+        `${field.lookupRecordType} record found: ${recordFacts}`,
       );
     }
   }

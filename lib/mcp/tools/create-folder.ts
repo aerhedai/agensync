@@ -13,7 +13,7 @@ import {
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 import type { ToolName } from "@/lib/mcp/tool-registry";
 
-const TOOL_NAME: ToolName = "create_storage_folder";
+const TOOL_NAME: ToolName = "create_folder";
 
 const inputSchema = {
   provider: z.enum(["google-drive", "sharepoint"]),
@@ -41,7 +41,7 @@ const outputSchema = {
  * consequential the way send_email/create_calendar_event are (see
  * policy-engine.ts) — same class as the custom-entity write tools.
  */
-export function createCreateStorageFolderTool(organisationId: string) {
+export function createCreateFolderTool(organisationId: string) {
   return {
     name: TOOL_NAME,
     description:

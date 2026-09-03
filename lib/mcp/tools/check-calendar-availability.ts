@@ -23,7 +23,7 @@ const outputSchema = {
 };
 
 /**
- * Read-only (same readOnlyHint annotation as find_customer/check_inventory
+ * Read-only (same readOnlyHint annotation as find_record/search_records
  * in lib/mcp/server.ts) — organisationId/actionIntegrationId bound at
  * server-construction time, never a tool argument (CLAUDE.md #22).
  */

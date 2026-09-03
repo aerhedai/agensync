@@ -38,10 +38,7 @@ describe("entity_correspondence_archive pipeline", () => {
         pipelineConfig: overrides.pipelineConfig as never,
       },
     });
-    const tools = overrides.tools ?? [
-      "find_custom_entity_record",
-      "save_storage_file",
-    ];
+    const tools = overrides.tools ?? ["find_record", "save_file"];
     await prisma.agentTool.createMany({
       data: tools.map((toolName) => ({ agentId: agent.id, toolName })),
     });
@@ -59,7 +56,7 @@ describe("entity_correspondence_archive pipeline", () => {
   }
 
   const basePipelineConfig = {
-    entityType: "Job",
+    recordType: "Job",
     keyField: "jobId",
     subjectPattern: "\\[Job #([A-Za-z0-9-]+)\\]",
     provider: "google-drive" as const,
@@ -201,14 +198,14 @@ describe("entity_correspondence_archive pipeline", () => {
       include: { steps: { include: { toolCall: true } } },
     });
     const saveCall = run.steps.find(
-      (s) => s.toolCall?.toolName === "save_storage_file",
+      (s) => s.toolCall?.toolName === "save_file",
     );
     expect(saveCall?.toolCall?.status).toBe("FAILED");
     expect(saveCall?.toolCall?.error).toMatch(/google drive is not connected/i);
     // Never got as far as reading attachments, since the body save itself
     // already failed.
     expect(
-      run.steps.filter((s) => s.toolCall?.toolName === "save_storage_file"),
+      run.steps.filter((s) => s.toolCall?.toolName === "save_file"),
     ).toHaveLength(1);
   });
 
@@ -216,7 +213,7 @@ describe("entity_correspondence_archive pipeline", () => {
     await createJobRecord({ jobId: "2004", status: "Approved" });
     const agent = await createAgent({
       pipelineConfig: basePipelineConfig,
-      tools: ["find_custom_entity_record"], // missing save_storage_file
+      tools: ["find_record"], // missing save_file
     });
 
     const result = await runHarnessPipeline(
@@ -231,7 +228,7 @@ describe("entity_correspondence_archive pipeline", () => {
       include: { steps: { include: { toolCall: true } } },
     });
     const saveCall = run.steps.find(
-      (s) => s.toolCall?.toolName === "save_storage_file",
+      (s) => s.toolCall?.toolName === "save_file",
     );
     expect(saveCall?.toolCall?.error).toMatch(/does not have access/i);
   });
@@ -263,7 +260,7 @@ describe("entity_correspondence_archive pipeline", () => {
       include: { steps: { include: { toolCall: true } } },
     });
     const saveCall = run.steps.find(
-      (s) => s.toolCall?.toolName === "save_storage_file",
+      (s) => s.toolCall?.toolName === "save_file",
     );
     expect(saveCall?.toolCall?.error).toMatch(/google drive is not connected/i);
   });

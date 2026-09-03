@@ -29,8 +29,8 @@ export default async function ProductsPage() {
 
       {products.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No products yet. Add one so find_product, check_inventory, and
-          calculate_quote have real data to look up.
+          No products yet. Add one so find_record and search_records have real
+          data to look up.
         </p>
       ) : (
         <div className="flex flex-col gap-3">

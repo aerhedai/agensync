@@ -77,12 +77,12 @@ export function EntityStatusSignalFields({
   entityTypes: EntityTypeOption[];
   initial?: EntityStatusSignalConfig;
 }) {
-  const [entityType, setEntityType] = useState(initial?.entityType ?? "");
+  const [recordType, setRecordType] = useState(initial?.recordType ?? "");
   const [keyField, setKeyField] = useState(initial?.keyField ?? "");
   const [statusField, setStatusField] = useState(initial?.statusField ?? "");
   const [rows, setRows] = useState<TransitionRow[]>(rowsFromInitial(initial));
 
-  const fields = entityTypes.find((e) => e.name === entityType)?.fields ?? [];
+  const fields = entityTypes.find((e) => e.name === recordType)?.fields ?? [];
 
   function updateRow(index: number, patch: Partial<TransitionRow>) {
     setRows((r) =>
@@ -101,12 +101,12 @@ export function EntityStatusSignalFields({
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="flex flex-1 flex-col gap-1">
-          <Label htmlFor="esEntityType">Catalog type</Label>
+          <Label htmlFor="esRecordType">Catalog type</Label>
           <select
-            id="esEntityType"
-            name="esEntityType"
-            value={entityType}
-            onChange={(e) => setEntityType(e.target.value)}
+            id="esRecordType"
+            name="esRecordType"
+            value={recordType}
+            onChange={(e) => setRecordType(e.target.value)}
             className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
           >
             <option value="">Select a catalog type…</option>

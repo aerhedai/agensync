@@ -83,125 +83,122 @@ describe("MCP tool server", () => {
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
   });
 
-  it("lists all sixteen tools", async () => {
+  it("lists exactly the eleven registered tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
+    // Asserted as an exact list, not a count: the registry is meant to stay
+    // small and fixed, and a tool appearing here that nobody deliberately
+    // added is the failure this catches (CLAUDE.md §4.5).
     expect(names).toEqual([
-      "calculate_quote",
       "check_calendar_availability",
-      "check_inventory",
       "create_calendar_event",
-      "create_custom_entity_record",
-      "create_storage_folder",
-      "find_custom_entity_record",
-      "find_customer",
-      "find_product",
-      "notify_slack",
-      "notify_teams",
-      "populate_document_template",
-      "save_storage_file",
-      "search_custom_entity",
+      "create_folder",
+      "create_record",
+      "find_record",
+      "notify_channel",
+      "populate_template",
+      "save_file",
+      "search_records",
       "send_email",
-      "update_custom_entity_record",
+      "update_record",
     ]);
   });
 
-  it("find_customer finds a known customer", async () => {
+  it("find_record reaches the built-in Customer type by an exact field match", async () => {
     const result = await client.callTool({
-      name: "find_customer",
-      arguments: { query: "Customer ABC" },
+      name: "find_record",
+      arguments: {
+        recordType: "Customer",
+        field: "email",
+        value: "buyer@customer-abc.test",
+      },
     });
 
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({
       found: true,
-      customer: { name: "Customer ABC" },
+      record: { type: "Customer", data: { name: "Customer ABC" } },
     });
   });
 
-  it("find_customer reports not found for an unknown query", async () => {
+  it("find_record reports not found for a value that matches nothing", async () => {
     const result = await client.callTool({
-      name: "find_customer",
-      arguments: { query: "nonexistent" },
+      name: "find_record",
+      arguments: {
+        recordType: "Customer",
+        field: "email",
+        value: "nobody@nowhere.test",
+      },
     });
 
-    expect(result.structuredContent).toEqual({ found: false, customer: null });
+    expect(result.structuredContent).toEqual({ found: false, record: null });
   });
 
-  it("find_product finds a known product", async () => {
+  it("find_record reaches the built-in Product type, exposing stock as an ordinary field", async () => {
+    // check_inventory used to be its own tool. Availability is a property
+    // of the product, not a separate capability (CLAUDE.md §4.5), so it
+    // arrives here as just another field on the record.
     const result = await client.callTool({
-      name: "find_product",
-      arguments: { query: "Product A" },
+      name: "find_record",
+      arguments: { recordType: "Product", field: "sku", value: "WIDGET-A" },
     });
 
     expect(result.structuredContent).toMatchObject({
       found: true,
-      product: { sku: "WIDGET-A", unitPrice: 15 },
+      record: {
+        type: "Product",
+        data: { sku: "WIDGET-A", unitPrice: 15, stockQuantity: 700 },
+      },
     });
   });
 
-  it("check_inventory returns the available quantity", async () => {
+  it("search_records fuzzily matches a built-in Product by name", async () => {
     const result = await client.callTool({
-      name: "check_inventory",
-      arguments: { productId: "prod-1" },
-    });
-
-    expect(result.structuredContent).toEqual({
-      productId: "prod-1",
-      quantityAvailable: 700,
-    });
-  });
-
-  it("calculate_quote matches CLAUDE.md's worked example: 500 units of Product A = £7,500", async () => {
-    const result = await client.callTool({
-      name: "calculate_quote",
-      arguments: { productId: "prod-1", quantity: 500 },
+      name: "search_records",
+      arguments: { recordType: "Product", query: "Product A" },
     });
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual({
-      productId: "prod-1",
-      quantity: 500,
-      unitPrice: 15,
-      total: 7500,
-      currency: "GBP",
+    expect(result.structuredContent).toMatchObject({
+      found: true,
+      records: [{ type: "Product", data: { sku: "WIDGET-A" } }],
     });
   });
 
-  it("calculate_quote falls back to a name/SKU match when given a product name instead of an id", async () => {
-    // Regression test for a real Phase 9 live-testing failure: the model
-    // called find_product first (getting back id "prod-1") but then passed
-    // find_product's *query* ("Product A") to calculate_quote instead of
-    // the id it had just been given — this must still resolve correctly.
+  it("names the record types that do exist when given one that doesn't", async () => {
+    // An unknown type name and a genuinely empty result are different
+    // failures — collapsing them would let a misconfigured agent look like
+    // it is working against an empty dataset.
     const result = await client.callTool({
-      name: "calculate_quote",
-      arguments: { productId: "Product A", quantity: 500 },
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual({
-      productId: "prod-1",
-      quantity: 500,
-      unitPrice: 15,
-      total: 7500,
-      currency: "GBP",
-    });
-  });
-
-  it("calculate_quote reports a tool-level error for an unknown product", async () => {
-    const result = await client.callTool({
-      name: "calculate_quote",
-      arguments: { productId: "does-not-exist", quantity: 1 },
+      name: "find_record",
+      arguments: { recordType: "Sprocket", field: "id", value: "x" },
     });
 
     expect(result.isError).toBe(true);
+    const text = JSON.stringify(result.content);
+    expect(text).toContain("Sprocket");
+    expect(text).toContain("Customer");
+    expect(text).toContain("Product");
+  });
+
+  it("refuses to write to a built-in record type rather than silently coercing", async () => {
+    // Product.unitPrice is a real Decimal column; an untyped data bag from
+    // a model cannot safely populate it. Refused loudly until Product and
+    // Customer become ordinary record types (CLAUDE.md §7).
+    const result = await client.callTool({
+      name: "create_record",
+      arguments: { recordType: "Product", data: { sku: "X", unitPrice: "12" } },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("built-in");
   });
 
   it("reports invalid input as a tool error before the handler runs", async () => {
     const result = await client.callTool({
-      name: "calculate_quote",
-      arguments: { productId: "prod-1", quantity: -5 },
+      name: "find_record",
+      arguments: { recordType: "Customer", field: "email", value: "" },
     });
 
     expect(result.isError).toBe(true);
@@ -316,10 +313,14 @@ describe("MCP tool server", () => {
     expect(calledUrl).toContain("/sendMail");
   });
 
-  it("notify_slack reports a tool error when Slack isn't connected for the organisation", async () => {
+  it("notify_channel reports a tool error when Slack isn't connected for the organisation", async () => {
     const result = await client.callTool({
-      name: "notify_slack",
-      arguments: { channel: "#general", message: "A quote needs approval." },
+      name: "notify_channel",
+      arguments: {
+        platform: "slack",
+        channel: "#general",
+        message: "A quote needs approval.",
+      },
     });
 
     expect(result.isError).toBe(true);
@@ -328,10 +329,11 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("notify_slack is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
+  it("notify_channel is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
     const result = await client.callTool({
-      name: "notify_slack",
+      name: "notify_channel",
       arguments: {
+        platform: "slack",
         channel: "#general",
         message: "A quote needs approval.",
         organisationId: "some-other-org",
@@ -344,12 +346,13 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("notify_teams reports a tool error when Teams isn't connected for the organisation", async () => {
+  it("notify_channel reports a tool error when Teams isn't connected for the organisation", async () => {
     const result = await client.callTool({
-      name: "notify_teams",
+      name: "notify_channel",
       arguments: {
+        platform: "teams",
         teamId: "team-1",
-        channelId: "channel-1",
+        channel: "channel-1",
         message: "A quote needs approval.",
       },
     });
@@ -360,12 +363,13 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("notify_teams is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
+  it("notify_channel on Teams is scoped to the organisation the server was constructed for, not any org the LLM names", async () => {
     const result = await client.callTool({
-      name: "notify_teams",
+      name: "notify_channel",
       arguments: {
+        platform: "teams",
         teamId: "team-1",
-        channelId: "channel-1",
+        channel: "channel-1",
         message: "A quote needs approval.",
         organisationId: "some-other-org",
       },
@@ -438,10 +442,10 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("search_custom_entity finds a record by any field, not just a fixed one", async () => {
+  it("search_records finds a record by any field, not just a fixed one", async () => {
     const result = await client.callTool({
-      name: "search_custom_entity",
-      arguments: { entityType: "Property", query: "Birch" },
+      name: "search_records",
+      arguments: { recordType: "Property", query: "Birch" },
     });
 
     expect(result.isError).toBeFalsy();
@@ -451,46 +455,61 @@ describe("MCP tool server", () => {
     });
   });
 
-  it("search_custom_entity matches on a field other than the first one", async () => {
+  it("search_records matches on a field other than the first one", async () => {
     const result = await client.callTool({
-      name: "search_custom_entity",
-      arguments: { entityType: "Property", query: "Jordan Reyes" },
+      name: "search_records",
+      arguments: { recordType: "Property", query: "Jordan Reyes" },
     });
 
     expect(result.structuredContent).toMatchObject({ found: true });
   });
 
-  it("search_custom_entity reports not found for no match", async () => {
+  it("search_records reports not found for no match", async () => {
     const result = await client.callTool({
-      name: "search_custom_entity",
-      arguments: { entityType: "Property", query: "nonexistent" },
+      name: "search_records",
+      arguments: { recordType: "Property", query: "nonexistent" },
     });
 
     expect(result.structuredContent).toEqual({ found: false, records: [] });
   });
 
-  it("search_custom_entity errors clearly for an entity type that doesn't exist", async () => {
+  it("search_records errors clearly for a record type that doesn't exist", async () => {
     const result = await client.callTool({
-      name: "search_custom_entity",
-      arguments: { entityType: "NotARealType", query: "anything" },
+      name: "search_records",
+      arguments: { recordType: "NotARealType", query: "anything" },
     });
 
     expect(result.isError).toBe(true);
     expect(result.content).toMatchObject([
       {
         type: "text",
-        text: expect.stringContaining(
-          'No custom entity type named "NotARealType"',
-        ),
+        text: expect.stringContaining('No record type named "NotARealType"'),
       },
     ]);
   });
 
-  it("find_custom_entity_record matches an exact field value, not a substring", async () => {
-    const found = await client.callTool({
-      name: "find_custom_entity_record",
+  it("requires teamId when notifying a Teams channel, rather than failing obscurely later", async () => {
+    // The "required only when platform is teams" rule can't be expressed
+    // in a flat MCP input schema, so it's enforced in the handler — this
+    // locks in that it produces a correctable message, not a crash.
+    const result = await client.callTool({
+      name: "notify_channel",
       arguments: {
-        entityType: "Property",
+        platform: "teams",
+        channel: "channel-1",
+        message: "Needs attention.",
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("teamId is required");
+  });
+
+  it("find_record matches an exact field value, not a substring", async () => {
+    const found = await client.callTool({
+      name: "find_record",
+      arguments: {
+        recordType: "Property",
         field: "tenant",
         value: "Jordan Reyes",
       },
@@ -501,17 +520,17 @@ describe("MCP tool server", () => {
     });
 
     const notFound = await client.callTool({
-      name: "find_custom_entity_record",
-      arguments: { entityType: "Property", field: "tenant", value: "Jordan" },
+      name: "find_record",
+      arguments: { recordType: "Property", field: "tenant", value: "Jordan" },
     });
     expect(notFound.structuredContent).toEqual({ found: false, record: null });
   });
 
-  it("create_custom_entity_record creates a new record with the given fields", async () => {
+  it("create_record creates a new record with the given fields", async () => {
     const result = await client.callTool({
-      name: "create_custom_entity_record",
+      name: "create_record",
       arguments: {
-        entityType: "Property",
+        recordType: "Property",
         data: { address: "9 Oak Lane", tenant: "Sam Okafor" },
       },
     });
@@ -522,9 +541,9 @@ describe("MCP tool server", () => {
     });
 
     const refetch = await client.callTool({
-      name: "find_custom_entity_record",
+      name: "find_record",
       arguments: {
-        entityType: "Property",
+        recordType: "Property",
         field: "tenant",
         value: "Sam Okafor",
       },
@@ -532,11 +551,11 @@ describe("MCP tool server", () => {
     expect(refetch.structuredContent).toMatchObject({ found: true });
   });
 
-  it("update_custom_entity_record merges fields, leaving others untouched", async () => {
+  it("update_record merges fields, leaving others untouched", async () => {
     const existing = await client.callTool({
-      name: "find_custom_entity_record",
+      name: "find_record",
       arguments: {
-        entityType: "Property",
+        recordType: "Property",
         field: "tenant",
         value: "Jordan Reyes",
       },
@@ -545,9 +564,9 @@ describe("MCP tool server", () => {
       .record.id;
 
     const result = await client.callTool({
-      name: "update_custom_entity_record",
+      name: "update_record",
       arguments: {
-        entityType: "Property",
+        recordType: "Property",
         recordId,
         data: { status: "Vacated" },
       },
@@ -565,11 +584,11 @@ describe("MCP tool server", () => {
     });
   });
 
-  it("update_custom_entity_record errors clearly for a record id that doesn't exist", async () => {
+  it("update_record errors clearly for a record id that doesn't exist", async () => {
     const result = await client.callTool({
-      name: "update_custom_entity_record",
+      name: "update_record",
       arguments: {
-        entityType: "Property",
+        recordType: "Property",
         recordId: "nonexistent-id",
         data: { status: "Vacated" },
       },
@@ -584,9 +603,9 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("create_storage_folder reports a tool error when the storage provider isn't connected", async () => {
+  it("create_folder reports a tool error when the storage provider isn't connected", async () => {
     const result = await client.callTool({
-      name: "create_storage_folder",
+      name: "create_folder",
       arguments: { provider: "google-drive", path: ["1042"] },
     });
 
@@ -599,9 +618,9 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("create_storage_folder reports a clear error when siteName is missing for sharepoint", async () => {
+  it("create_folder reports a clear error when siteName is missing for sharepoint", async () => {
     const result = await client.callTool({
-      name: "create_storage_folder",
+      name: "create_folder",
       arguments: { provider: "sharepoint", path: ["1042"] },
     });
 
@@ -611,9 +630,9 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("save_storage_file reports a tool error when the storage provider isn't connected", async () => {
+  it("save_file reports a tool error when the storage provider isn't connected", async () => {
     const result = await client.callTool({
-      name: "save_storage_file",
+      name: "save_file",
       arguments: {
         provider: "google-drive",
         path: ["1042", "Client correspondence"],
@@ -632,9 +651,9 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("populate_document_template reports a tool error when the storage provider isn't connected", async () => {
+  it("populate_template reports a tool error when the storage provider isn't connected", async () => {
     const result = await client.callTool({
-      name: "populate_document_template",
+      name: "populate_template",
       arguments: {
         provider: "google-drive",
         templatePath: ["Templates", "quote-template.docx"],
@@ -653,7 +672,7 @@ describe("MCP tool server", () => {
     ]);
   });
 
-  it("populate_document_template downloads a real template, fills its {field} placeholders, and uploads the result", async () => {
+  it("populate_template downloads a real template, fills its {field} placeholders, and uploads the result", async () => {
     await integrationService.connectOAuthAccount(
       organisationId,
       "google-drive",
@@ -737,7 +756,7 @@ describe("MCP tool server", () => {
     });
 
     const result = await client.callTool({
-      name: "populate_document_template",
+      name: "populate_template",
       arguments: {
         provider: "google-drive",
         templatePath: ["Templates", "quote-template.docx"],

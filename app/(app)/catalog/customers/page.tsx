@@ -27,7 +27,7 @@ export default async function CustomersPage() {
 
       {customers.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No customers yet. Add one so find_customer has real data to look up.
+          No customers yet. Add one so find_record has real data to look up.
         </p>
       ) : (
         <div className="flex flex-col gap-3">

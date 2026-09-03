@@ -1,4 +1,3 @@
-import { getAIProvider } from "@/lib/ai/get-provider";
 import type { AIProvider } from "@/lib/ai/provider";
 import type { Agent } from "@/lib/generated/prisma/client";
 import { runHarnessPipeline } from "@/lib/harness/run-harness-pipeline";
@@ -17,7 +16,7 @@ import type { RunResult } from "@/lib/runtime/agent-runtime";
 export function runAgentByExecutionMode(
   agent: Agent,
   input: string,
-  provider: AIProvider = getAIProvider(),
+  provider: AIProvider,
   senderEmail: string | null = null,
   getAttachments?: () => Promise<ResolvedAttachment[]>,
 ): Promise<RunResult> {

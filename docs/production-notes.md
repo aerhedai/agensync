@@ -183,6 +183,37 @@ needs to scale or harden further:
   trade-off is worth making. This setup exists specifically to keep using
   Ollama for now without blocking the rest of Phase C on that decision.
 
+**The AI provider is a per-organisation Connection now, not a global env
+var (closed, after a real incident).** `AI_PROVIDER`/`OLLAMA_BASE_URL`/
+`OLLAMA_PROXY_SECRET` used to be read once at boot and shared by every
+organisation on the deployment. With public sign-up live on
+`aperator.com`, that meant anyone who created an account — a real
+stranger, not a hypothetical — had their agent runs sent straight to the
+operator's own Ollama instance, using their own compute and bandwidth,
+with no way to tell whose traffic was whose. Fixed by making an AI
+provider connection an ordinary `Integration` row
+(`lib/ai/organisation-ai-provider.ts`, `provider: "ollama"`) — the same
+Connection primitive Gmail/Slack/etc. already use — configured per
+organisation from Settings → AI Provider. An organisation with nothing
+connected gets a clear `AIProviderNotConfiguredError` (surfaced as a 503
+from the webhook route, a plain form error from "Run agent" and
+"Check inbox") rather than an implicit fallback to anyone else's machine.
+The proxy mechanics above (Tailscale Funnel, the bearer-secret auth) are
+unchanged — only _which organisation's_ Ollama a given run reaches is
+now explicit and scoped, instead of global.
+
+Resolution is deliberately not fully lazy: `lib/routing/dispatch.ts`
+resolves the provider once a workflow/classifier/active-handler is
+confirmed to exist, even though the deterministic keyword fast path can
+still mean the LLM is never actually called for that particular message
+(and a HARNESS pipeline like `entity_status_signal` never calls it at
+all). Fully deferring resolution to the exact call that needs it would
+mean threading a lazy resolver through every pipeline instead of a
+resolved value, for a real but narrow case. `resumeRun`'s `provider` stays
+genuinely optional and lazily resolved, since a `REJECTED` decision or a
+`HARNESS`-mode approval never reach the one branch (continuing a paused
+LOOP conversation) that needs it at all.
+
 **Gmail in production**: the OAuth client's authorized redirect URIs need
 `https://aperator.com/api/integrations/gmail/callback` added manually in
 Google Cloud Console (Credentials page) — not something the Vercel CLI or

@@ -18,11 +18,10 @@ config({ path: ".env.local" });
 // process.env eagerly) before the dotenv config() call above runs — these
 // have to be dynamic so .env.local is loaded first.
 const { prisma } = await import("@/lib/db/prisma");
-const { OllamaProvider } = await import("@/lib/ai/providers/ollama-provider");
+const { getAIProvider } = await import("@/lib/ai/organisation-ai-provider");
 const { dispatchInboundMessage } = await import("@/lib/routing/dispatch");
 const { createProduct } = await import("@/lib/products/product-repository");
 const { createCustomer } = await import("@/lib/customers/customer-repository");
-const { env } = await import("@/lib/env");
 import type {
   AIProvider,
   GenerateRequest,
@@ -125,9 +124,10 @@ async function main() {
     Array.from({ length: REPEATS }, () => t),
   );
 
-  const tracking = new TrackingProvider(
-    new OllamaProvider(env.OLLAMA_BASE_URL, env.OLLAMA_PROXY_SECRET),
-  );
+  // Uses the test org's own connected AI provider (Settings → AI Provider)
+  // rather than a global env var — same resolution every real run goes
+  // through now (lib/ai/organisation-ai-provider.ts).
+  const tracking = new TrackingProvider(await getAIProvider(TEST_ORG_ID));
 
   interface EmailResult {
     category: string;

@@ -4,8 +4,6 @@ import { envSchema } from "@/lib/env";
 
 const validEnv = {
   DATABASE_URL: "postgresql://user:pass@localhost:5433/aperator",
-  OLLAMA_BASE_URL: "http://ollama.test:11434",
-  AI_PROVIDER: "ollama",
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_dGVzdC1rZXk",
   CLERK_SECRET_KEY: "sk_test_dGVzdC1rZXk",
   TOKEN_ENCRYPTION_KEY: "VAbwbKlEAJsczJIK4qu/Or5WWwOYJ86VZJ94gwtcRHM=",
@@ -19,8 +17,8 @@ describe("envSchema", () => {
   });
 
   it("rejects a missing DATABASE_URL", () => {
-    const { OLLAMA_BASE_URL, AI_PROVIDER } = validEnv;
-    const result = envSchema.safeParse({ OLLAMA_BASE_URL, AI_PROVIDER });
+    const rest = { ...validEnv, DATABASE_URL: undefined };
+    const result = envSchema.safeParse(rest);
 
     expect(result.success).toBe(false);
   });
@@ -30,19 +28,6 @@ describe("envSchema", () => {
       ...validEnv,
       DATABASE_URL: "not-a-url",
     });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a missing OLLAMA_BASE_URL", () => {
-    const { DATABASE_URL, AI_PROVIDER } = validEnv;
-    const result = envSchema.safeParse({ DATABASE_URL, AI_PROVIDER });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an unsupported AI_PROVIDER", () => {
-    const result = envSchema.safeParse({ ...validEnv, AI_PROVIDER: "openai" });
 
     expect(result.success).toBe(false);
   });

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import * as accountService from "@/lib/auth/account-service";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import * as aiProviderService from "@/lib/ai/organisation-ai-provider";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 import * as organisationService from "@/lib/organisations/organisation-service";
@@ -156,4 +157,45 @@ export async function deleteOrganisationAction(
     organisation.clerkOrgId,
   );
   redirect("/select-organisation");
+}
+
+export type OllamaProviderFormState = {
+  error?: string;
+  saved?: boolean;
+};
+
+export async function saveOllamaProviderAction(
+  _prevState: OllamaProviderFormState,
+  formData: FormData,
+): Promise<OllamaProviderFormState> {
+  const baseUrl = formData.get("baseUrl");
+  if (typeof baseUrl !== "string" || baseUrl.trim().length === 0) {
+    return { error: "Base URL is required." };
+  }
+  // Caught here rather than only failing the next time an agent tries to
+  // run against an unusable value.
+  const isValidUrl = URL.canParse(baseUrl.trim());
+  if (!isValidUrl) {
+    return { error: "Base URL must be a valid URL, e.g. https://host:11434." };
+  }
+
+  const proxySecretRaw = formData.get("proxySecret");
+  const proxySecret =
+    typeof proxySecretRaw === "string" && proxySecretRaw.trim().length > 0
+      ? proxySecretRaw.trim()
+      : undefined;
+
+  const organisation = await getCurrentOrganisation();
+  await aiProviderService.setOllamaProvider(organisation.id, {
+    baseUrl: baseUrl.trim(),
+    proxySecret,
+  });
+  revalidatePath("/settings/ai-provider");
+  return { saved: true };
+}
+
+export async function disconnectAIProviderAction() {
+  const organisation = await getCurrentOrganisation();
+  await aiProviderService.disconnectAIProvider(organisation.id);
+  revalidatePath("/settings/ai-provider");
 }

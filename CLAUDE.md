@@ -486,17 +486,31 @@ That asymmetry disappears when those tables become ordinary record types.
 model for how a pipeline should be built: neutrally named, config-driven
 via `pipelineConfig`, usable by any business.
 
-**Sequencing still matters.** Do not consolidate before the primitives are
-strong enough to absorb what is being deleted. Collapsing `Product` into
-`CustomEntityType` today would replace a real `Decimal` price with an
-untyped string — a downgrade. Correct order:
+**Sequencing still matters, but one entry above was over-cautious.** The
+general rule stands: do not consolidate before the primitives are strong
+enough to absorb what is being deleted.
+
+The specific `Product`/`Customer` warning here originally read "collapsing
+them today would replace a real `Decimal` price with an untyped string — a
+downgrade." That was written assuming those tables held data. Checked
+against production since: **both hold zero rows.** There is no price data
+to downgrade, so that collapse is far cheaper than stated and is not
+genuinely blocked on typed fields — only on someone doing it. Typed fields
+are still required for `compute`/`branch` steps and data-driven policies,
+which is a different reason.
+
+Correct order:
 
 ```text
-1. Typed Record Type fields  (4.3)
+1. Typed Record Type fields  (4.3)  — for policies/compute, not the catalog
 2. Policies as data          (4.6)
 3. SCHEDULE trigger          (4.2)
 4. Then the remaining consolidation above
 ```
+
+A fuller redesign of agent creation (steps as data, replacing the fixed
+"Category type" menu) and of the catalog is specified in
+`docs/agent-step-engine-design.md` — proposed, not built.
 
 ---
 

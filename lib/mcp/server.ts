@@ -11,6 +11,7 @@ import { createFindRecordTool } from "@/lib/mcp/tools/find-record";
 import { createNotifyChannelTool } from "@/lib/mcp/tools/notify-channel";
 import { createPopulateTemplateTool } from "@/lib/mcp/tools/populate-template";
 import { createSaveFileTool } from "@/lib/mcp/tools/save-file";
+import { createSearchKnowledgeTool } from "@/lib/mcp/tools/search-knowledge";
 import { createSearchRecordsTool } from "@/lib/mcp/tools/search-records";
 import { createSendEmailTool } from "@/lib/mcp/tools/send-email";
 import { createUpdateRecordTool } from "@/lib/mcp/tools/update-record";
@@ -102,6 +103,7 @@ export async function createMcpServer(
   // Read business data
   register(createFindRecordTool(organisationId), readOnly);
   register(createSearchRecordsTool(organisationId), readOnly);
+  register(createSearchKnowledgeTool(organisationId), readOnly);
 
   // Write business data
   register(createCreateRecordTool(organisationId));

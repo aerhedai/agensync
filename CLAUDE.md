@@ -1,1367 +1,703 @@
-# Agentic AI Business Automation Platform
+# Aperator — Agentic Business Automation Platform
 
-## Product & Engineering Specification — V1
+## Product & Engineering Specification — V2 (primitives-first)
 
 ---
 
-# 1. Project Overview
+# 0. How To Read This Document
 
-We are building an early-stage B2B agentic AI automation platform.
+This is the second major version of this specification. V1 described the
+product through a single worked example (an AI Quote Agent) and a
+phase-by-phase build plan. That plan is largely complete and the
+application is deployed and running.
 
-The long-term business goal is to help companies automate repetitive business processes that currently require employees to:
+V1's framing caused a real problem, and correcting it is the main purpose
+of this rewrite:
+
+> Describing the product through one example use case caused that example
+> to be built as **first-class platform machinery** rather than as one
+> configuration among many.
+
+Quoting-specific concepts (`calculate_quote`, `check_inventory`,
+`find_product`, a bespoke `quote` pipeline) became permanent primitives.
+Every unrelated business now pays rent on them — in the tool list they
+must choose from, in the schema, and in the mental model a new developer
+has to load.
+
+V2 replaces the example-led framing with a **primitives-led** one. The
+platform provides a small, fixed set of generic building blocks. Specific
+business processes are expressed as *templates* assembled from those
+blocks, never as new platform code.
+
+Everything in sections 8 onward (engineering standards, security,
+testing, git workflow) carries over from V1 largely unchanged. Those were
+right. It was the product architecture framing that needed correcting.
+
+---
+
+# 1. What Aperator Is
+
+Aperator is a B2B platform that lets a business automate repetitive
+processes that currently require an employee to:
 
 1. Receive information
-2. Understand/classify it
-3. Extract relevant information
-4. Make decisions based on business rules
-5. Look up information in company systems
+2. Understand and classify it
+3. Extract the relevant details
+4. Decide what should happen, against business rules
+5. Look things up in company systems
 6. Perform actions in other systems
 7. Communicate the result
-8. Escalate unusual or sensitive situations to a human
+8. Escalate anything unusual or sensitive to a human
 
-The platform should allow a business to create AI-powered agents that can interact with business tools and complete these processes.
+The central distinction, unchanged from V1 and worth restating:
 
-The important distinction is:
+> This is not primarily an AI chatbot. It is an AI-powered business
+> process automation platform.
 
-> This is not primarily an AI chatbot.
+What makes it defensible is not that an LLM is involved. It is that every
+action is **gated by deterministic policy**, **optionally held for human
+approval**, and **recorded in a complete audit trail**. The AI proposes;
+application code decides.
 
-The product is an **AI-powered business process automation platform**.
+The underlying promise to a customer:
 
-The AI should be capable of:
+> Speed up your business using AI agents and pipelined tools — without
+> giving up control of what those agents are allowed to do.
+
+---
+
+# 2. Current State
+
+This is a live, deployed application. Do not treat it as greenfield.
 
 ```text
-Receive information
+Production:   https://aperator.com   (Vercel, auto-deploys from `main`)
+Database:     Neon Postgres          (`main` branch = production)
+                                     (`preview-dev` branch = preview/dev)
+Auth:         Clerk Production instance, multi-tenant via Clerk Orgs
+AI:           Ollama via an auth-gated Tailscale proxy (a documented stopgap)
+```
+
+Built and working: organisations/users, agents, workflows (classifier +
+handler routing), the agent runtime (LOOP and HARNESS execution modes),
+a tool system with per-agent grants, a deterministic policy engine,
+human approvals, a full run/step/tool-call audit trail, business-defined
+custom entities, and seven OAuth integrations (Gmail, Outlook, Teams,
+Slack, Google Drive, SharePoint, Outlook Calendar).
+
+`docs/production-notes.md` is the canonical record of deliberate
+simplifications and known production gaps. Read it before changing
+anything infrastructural. Keep it current — when a gap closes, say so
+there.
+
+---
+
+# 3. Core Architectural Principle — Primitives, Not Verticals
+
+This is the most important section of this document.
+
+> **A vertical is a template. A vertical is never a primitive.**
+
+Platforms that serve many industries all share one property: a small set
+of orthogonal nouns, where a CRM and a bug tracker are *the same nouns
+configured differently*. Airtable does not ship a `calculate_quote`
+feature. Neither should we.
+
+The test to apply before adding anything:
+
+```text
+Would a business in a completely unrelated industry
+have any use for this concept?
+
+  Yes  → it may be a primitive
+  No   → it is a template, built from existing primitives
+```
+
+Concretely:
+
+* A landlord, a law firm, a takeaway and a dropshipper must all be
+  describable using the same seven nouns in section 4.
+* If serving a new customer requires new TypeScript, that is a design
+  failure, not a feature. The correct response is to ask which primitive
+  is too weak, and strengthen it generically.
+* Naming matters. `entity_status_signal` is a good name — it describes a
+  shape. `fswd_job_tracker` would have been a bad one.
+
+The failure mode this prevents is real and has already happened here
+once. See section 7.
+
+---
+
+# 4. The Seven Primitives
+
+Everything the platform exposes is one of these seven nouns. Nothing else
+should become a top-level concept.
+
+```text
+   Connection ──── authenticated link to an external system
+        │
+   Trigger ─────── what causes work to start
+        │
+   Record Type ─── the shape of the business's own data
+        │
+   Agent ───────── instructions + granted tools + execution mode
+        │
+   Tool ────────── a single generic capability
+        │
+   Policy ──────── deterministic rule gating an action
+        │
+   Run ─────────── the immutable record of what happened
+```
+
+## 4.1 Connection
+
+An authenticated link to an external system, owned by one organisation.
+
+Generic because: the OAuth adapter pattern
+(`lib/integrations/oauth-adapter.ts` + `oauth-registry.ts`) means adding a
+provider is an adapter file and a registry entry — no route, UI or schema
+changes. `Integration.provider` is deliberately a plain string, not a
+Postgres enum, so a new provider never needs a migration.
+
+Rules:
+
+* A business may connect multiple accounts of the same provider.
+* Credentials are encrypted at rest and never leave the server.
+* Least-privilege scopes only. Request the narrowest scope that works.
+* The long tail of systems is served by a **generic authenticated HTTP
+  connection**, not by bespoke adapters. Do not write a bespoke
+  integration for a system a generic HTTP call could reach.
+
+## 4.2 Trigger
+
+What causes work to start.
+
+Currently an enum field on `Workflow` with two values (`EMAIL`,
+`WEBHOOK`). This is the least developed primitive and should be promoted
+to a first-class configurable entity.
+
+Target trigger types:
+
+```text
+EMAIL       inbound mail on a connected mailbox
+WEBHOOK     inbound HTTP from an external system
+SCHEDULE    time-based — the highest-value missing trigger
+FORM        a submitted form / portal entry
+FILE        a file arriving in connected storage
+MESSAGE     an inbound chat message (Slack/Teams)
+MANUAL      a human runs it now, with supplied input
+```
+
+`SCHEDULE` is the single highest-leverage addition to the whole product:
+it converts Aperator from purely reactive to proactive, and unlocks
+recurring reviews, polling systems that have no webhooks, chasing
+overdue items, and periodic analysis. Note that inbound email is
+currently checked by a **manual dashboard button** — `SCHEDULE` fixes
+that too.
+
+## 4.3 Record Type
+
+A business-defined data shape — the business's own domain model.
+
+This is how a landlord gets Properties, a law firm gets Cases and a
+dropshipper gets Suppliers and Orders, without a migration per customer.
+`CustomEntityType` holds the field definitions; `CustomEntityRecord`
+holds rows as JSON keyed by those fields.
+
+Required improvements, in order:
+
+1. **Typed fields.** Every field is currently `z.string()`. Until fields
+   can be `number`, `date`, `currency`, `boolean` and `reference`, no
+   agent can do arithmetic, sort by time, or link records — which rules
+   out most analytical and order-shaped work.
+2. **Relations.** A `reference` field type pointing at another Record
+   Type. An Order must be able to belong to a Customer.
+3. **Aggregation.** A query/aggregate tool (group, sum, average, count,
+   bucket by period). Without it the platform can automate work but can
+   never answer a question about the business.
+4. **Bulk import/export.** CSV in and out. This is the universal escape
+   hatch for the many platforms that will never grant API access to a
+   small merchant.
+
+`Product` and `Customer` remain real tables for now. They are *not*
+privileged concepts — they are effectively built-in Record Types, and
+should eventually become seeded templates. Do not add a third hardcoded
+domain table.
+
+## 4.4 Agent
+
+An LLM worker: instructions, a set of granted tools, an execution mode,
+and a model configuration.
+
+Two execution modes, both first-class:
+
+```text
+LOOP     the model decides which tool to call next, turn by turn.
+         Flexible, non-deterministic, higher token cost.
+
+HARNESS  a coded pipeline sequences the tools; the model is only asked
+         narrow atomic questions (extract these fields, compose this
+         reply). Deterministic, cheap, predictable.
+```
+
+Prefer HARNESS wherever the process shape is known. LOOP exists for work
+that genuinely cannot be sequenced in advance.
+
+Agents compose into a **Workflow**: one CLASSIFIER decides which HANDLER
+should deal with an inbound item. A deterministic keyword fast-path
+(`lib/routing/deterministic-classify.ts`) skips the LLM entirely when
+exactly one handler matches — always prefer deterministic routing when it
+is unambiguous.
+
+Rule: agent configuration belongs in `Agent.pipelineConfig` (a JSON bag
+each pipeline validates with its own Zod schema), **not** in new named
+columns. See section 7 — this rule exists because it was broken.
+
+## 4.5 Tool
+
+A single generic capability an agent may invoke.
+
+The registry (`lib/mcp/tool-registry.ts`) is a small, fixed, reviewable
+list. It must not grow with every business-defined concept — this is why
+there is one `search_custom_entity` tool taking an entity-type parameter,
+rather than one tool per entity type.
+
+Every tool declares: name, description, input schema, output schema,
+handler, and permission requirements. The enforcement sequence is
+mandatory and lives in application code, never in the model:
+
+```text
+LLM requests a tool
         ↓
-Understand information
-        ↓
-Reason about what needs to happen
-        ↓
-Select appropriate tools
-        ↓
-Execute actions
-        ↓
-Observe the results
-        ↓
-Continue / retry / escalate
-        ↓
-Complete the task
+1. Validate the tool name exists
+2. Validate parameters against the input schema
+3. Check this agent was granted this tool  (AgentTool)
+4. Check organisation permissions
+5. Apply policy  (may DENY or REQUIRE_APPROVAL)
+6. Execute
+7. Record the call
+8. Return the result to the model
+```
+
+The LLM must never be able to bypass this. A tool absent from an agent's
+grants is refused even if the model asks for it — not merely hidden.
+
+Tools should be **verbs against primitives**, not against verticals:
+
+```text
+Good:  find_records, create_record, send_message, call_api, search_web
+Bad:   calculate_quote, check_inventory, find_product
+```
+
+The target tool surface — fewer tools covering strictly more ground than
+today's sixteen:
+
+| Capability | Tool |
+|---|---|
+| Read business data | `find_records`, `search_records` |
+| Write business data | `create_record`, `update_record` |
+| Analyse business data | `aggregate_records` *(to build)* |
+| Communicate | `send_message` (channel: email / slack / teams) |
+| Calendar | `check_calendar_availability`, `create_calendar_event` |
+| Files | `create_folder`, `save_file`, `populate_template` |
+| Reach any system | `call_api` *(to build — generic authenticated HTTP)* |
+| Reach the outside world | `search_web` *(to build)* |
+
+`call_api` is the highest-leverage tool not yet built: it serves every
+system for which a bespoke integration will never be written.
+
+## 4.6 Policy
+
+A deterministic rule that decides whether a proposed action is allowed.
+
+This is the product's core differentiator and it is currently the least
+generic thing in the codebase — `policy-engine.ts` holds a hardcoded
+`REQUIRES_APPROVAL_BEFORE_EXECUTION` list. A business cannot express
+"quotes over £10,000 need approval" (this document's own long-standing
+example) without a developer shipping code.
+
+**Policies must become data.** Target shape:
+
+```text
+WHEN   <tool>  is called
+AND    <field> <operator> <value>
+THEN   ALLOW | REQUIRE_APPROVAL | DENY
+```
+
+Rules:
+
+* The policy engine is deterministic application code. The LLM proposes
+  an action; policy decides. The model is never the authority on
+  permissions.
+* Policies are evaluated *before* execution for consequential actions.
+* Denials and approval requests are both recorded on the run.
+
+Typed Record Type fields (4.3) are a prerequisite — a rule comparing
+against `amount > 10000` needs `amount` to actually be a number.
+
+## 4.7 Run
+
+The immutable record of one execution: `AgentRun` → `RunStep` →
+`ToolCall`, plus any `Approval`.
+
+Statuses are explicit, never free strings:
+
+```text
+PENDING · RUNNING · WAITING_FOR_APPROVAL · COMPLETED · FAILED · CANCELLED
+```
+
+This primitive is in good shape and is a genuine asset. The run detail
+page — showing exactly what the agent did, step by step, with token
+costs — is one of the most important surfaces in the product. Protect it.
+
+Audit-trail rows must **never** cascade-delete. Configuration rows
+(`AgentTool`, `WorkflowAgent`) cascade; runs do not. Deleting an agent
+with run history is refused at the FK level and surfaced as "archive
+instead".
+
+---
+
+# 5. How The Primitives Compose
+
+One pass through the system:
+
+```text
+Connection            (a mailbox, a webhook, a schedule)
+     ↓
+Trigger fires
+     ↓
+Workflow selected     (org + trigger + bound account)
+     ↓
+Classifier agent      (or deterministic keyword match)
+     ↓
+Handler agent selected
+     ↓
+Agent runtime starts  →  AgentRun created
+     ↓
+   ┌──────────────────────────────┐
+   │  Agent requests a Tool       │
+   │        ↓                     │
+   │  Validate name + params      │
+   │        ↓                     │
+   │  Check grant + org scope     │
+   │        ↓                     │
+   │  Policy check ───────────────┼──→ DENY  → recorded, refused
+   │        ↓                     │
+   │  REQUIRE_APPROVAL ───────────┼──→ WAITING_FOR_APPROVAL
+   │        ↓                     │         ↓ human decides
+   │  Execute Tool                │←────────┘ (approved)
+   │        ↓                     │
+   │  Record ToolCall + RunStep   │
+   │        ↓                     │
+   │  Return result to agent      │
+   └──────────────┬───────────────┘
+                  ↓  (loop, bounded by MAX_AGENT_STEPS)
+            Run completes
+                  ↓
+         Full history visible in UI
+```
+
+There must always be safeguards against infinite agent loops. Step limits
+are configurable, never unbounded.
+
+---
+
+# 6. Templates
+
+A template is a **saved bundle of primitive configuration** that a
+business installs and then edits. It is data, not code.
+
+A template may specify: Record Types and their fields, a Workflow with
+its trigger, agents with instructions and tool grants, policies, and
+document templates.
+
+```text
+"Quote Handling"        Record Types: Product, Customer, Quote
+                        Trigger: EMAIL
+                        Agents: classifier + quote handler
+                        Policy: total > threshold → REQUIRE_APPROVAL
+
+"Order Routing"         Record Types: Order, Supplier, Customer
+                        Trigger: WEBHOOK
+                        Policy: value > threshold → REQUIRE_APPROVAL
+
+"Job Status Tracking"   Record Types: Job
+                        Trigger: WEBHOOK
+                        Pipeline: entity_status_signal
+```
+
+Rules for templates:
+
+* A template must be expressible entirely in existing primitives. If it
+  is not, the gap is in a primitive — fix that generically, do not
+  special-case the template.
+* Templates are starting points, not constraints. Everything a template
+  configures must remain editable afterwards.
+* `Workflow.source` already distinguishes `TEMPLATE` from `CUSTOM`, and
+  `templateKey` records provenance. Build on those.
+* Verticals ship as templates. This is how the product covers many
+  industries without the codebase learning about any of them.
+
+---
+
+# 7. Known Architectural Debt
+
+An audit found one repeated pattern: **a specific thing was built, a
+generic successor was later built that subsumes it, and the predecessor
+was never retired.** Both live side by side.
+
+| Legacy (specific) | Generic successor | Action |
+|---|---|---|
+| `find_product`, `find_customer`, `check_inventory` | `find_/search_custom_entity_record` | Merge into `find_records`/`search_records` |
+| `calculate_quote` | — | Delete. It is arithmetic plus a policy, not a capability |
+| `send_email`, `notify_slack`, `notify_teams` | — | Merge into one `send_message` with a channel parameter |
+| `extractionFields`, `guardrailKeywords`, `replySubjectTemplate`, `actionTool` (named columns) | `pipelineConfig` (JSON) | Fold the four columns into `pipelineConfig` |
+| `quote` pipeline (bespoke chain) | `acknowledge_reply` (config-driven) | Re-express as a template |
+| `Product`, `Customer` tables | `CustomEntityType` | Eventually seeded Record Types, not privileged tables |
+
+`entity_status_signal` and `entity_correspondence_archive` are the model
+for how this should be done: neutrally named, config-driven via
+`pipelineConfig`, and usable by any business. New pipelines follow that
+pattern.
+
+**Sequencing matters.** Do not consolidate before the primitives are
+strong enough to absorb what is being deleted. Collapsing `Product` into
+`CustomEntityType` today would replace a real `Decimal` price with an
+untyped string — a downgrade. Correct order:
+
+```text
+1. Typed Record Type fields  (4.3)
+2. Policies as data          (4.6)
+3. SCHEDULE trigger          (4.2)
+4. Then consolidate per the table above
 ```
 
 ---
 
-# 2. Example Use Case
+# 8. Technology Stack
 
-The initial example use case is an AI Quote Agent.
+## Application
 
-A business receives an email:
+* Next.js (App Router), React, TypeScript strict mode
+* Tailwind CSS, shadcn/ui
 
-"Hi,
+## Data
 
-Can you provide a quote for 500 units of Product A delivered to Birmingham?"
-
-The agent should eventually be able to:
-
-1. Detect that this is a quote request.
-2. Extract:
-
-   * Customer
-   * Product
-   * Quantity
-   * Delivery location
-   * Other relevant information
-3. Find the customer in the company's database/CRM.
-4. Find the requested product.
-5. Check availability.
-6. Calculate pricing.
-7. Generate a quote.
-8. Determine whether human approval is required.
-9. If approval is not required, send the quote.
-10. If approval is required, create an approval request.
-11. Once approved, continue the workflow.
-12. Record every step of the process.
-
-However, this is only an example.
-
-The platform must be designed so that the same underlying infrastructure can eventually support:
-
-* Customer support agents
-* Invoice processing agents
-* Order processing agents
-* Sales agents
-* Recruitment agents
-* Scheduling agents
-* Procurement agents
-* Document processing agents
-* Internal operations agents
-* Other repetitive business workflows
-
----
-
-# 3. Product Vision
-
-The long-term product should allow a company to configure:
-
-```text
-Trigger
-   ↓
-Agent
-   ↓
-Instructions
-   ↓
-Tools
-   ↓
-Business rules
-   ↓
-Workflow
-   ↓
-Human approval when necessary
-   ↓
-Actions
-   ↓
-Audit trail
-```
-
-A customer should eventually be able to connect their existing systems and configure an agent without needing to build the automation themselves.
-
-Long-term integrations could include:
-
-* Gmail
-* Microsoft Outlook
-* Slack
-* Microsoft Teams
-* HubSpot
-* Salesforce
-* Microsoft Dynamics
-* Xero
-* QuickBooks
-* Google Drive
-* OneDrive
-* REST APIs
-* Custom internal APIs
-* Databases
-
-These integrations are NOT all required for V1.
-
----
-
-# 4. V1 Goal
-
-V1 should NOT attempt to build the entire commercial platform.
-
-The goal of V1 is to prove the core technology:
-
-> A user can create an AI agent, give it instructions and tools, run it against an input, allow it to perform controlled actions, and see a complete record of what happened.
-
-The first implementation should be deliberately small.
-
-We should prioritize:
-
-* Correct architecture
-* Understandable code
-* Strong TypeScript practices
-* Clear separation of responsibilities
-* Testability
-* Security
-* Observability
-* Extensibility
-
-Do NOT prematurely build:
-
-* Microservices
-* Kubernetes
-* Kafka
-* Complex distributed infrastructure
-* Multiple cloud providers
-* Dozens of integrations
-* A marketplace
-* Complex billing
-* Enterprise SSO
-* A huge workflow visual editor
-
-Those can be introduced later when there is a real requirement.
-
----
-
-# 5. Initial Technology Stack
-
-Use the following stack unless there is a strong technical reason to change it.
-
-## Frontend / Application
-
-* Next.js
-* React
-* TypeScript
-* Next.js App Router
-* Tailwind CSS
-* shadcn/ui
-
-## Database
-
-* PostgreSQL
-* Prisma ORM
-
-## Validation
-
-* Zod
-
-All external/user-provided data must be validated.
-
-Never trust request bodies, query parameters, webhook payloads or tool inputs without validation.
+* PostgreSQL via Prisma ORM
+* Zod for all external input validation
 
 ## AI
 
-Initially support a local AI model through Ollama.
-
-The development machine contains an RTX 3090.
-
-The local GPU should be used for development and experimentation to minimise API costs.
-
-The architecture should nevertheless abstract the model provider so that commercial APIs can be introduced later.
-
-Do NOT tightly couple the entire application to one model provider.
+Model providers sit behind `AIProvider` (`lib/ai/`). Ollama is the
+current implementation, reached in production through an auth-gated
+proxy — a documented stopgap, not the final answer. Swapping to a hosted
+commercial API is architecturally trivial by design. Never scatter
+provider-specific SDK calls through the application.
 
 ## Development
 
-* Git
-* GitHub
-* Docker
-* Docker Compose
-* pnpm
-* ESLint
-* TypeScript strict mode
-* Automated tests
-* GitHub Actions
+Git, GitHub, Docker Compose, pnpm, ESLint, Prettier, Vitest,
+GitHub Actions.
 
 ---
 
-# 6. High-Level Architecture
+# 9. High-Level Architecture
 
-The initial architecture should be a modular monolith.
+A modular monolith. Do not split into microservices without a
+demonstrated need.
 
 ```text
                     Next.js Application
                            │
               ┌────────────┴────────────┐
-              │                         │
            Frontend                 API Layer
-              │                         │
               └────────────┬────────────┘
                            │
                      Service Layer
                            │
              ┌─────────────┼─────────────┐
-             │             │             │
-           Agents       Workflows       Runs
-             │             │             │
+          Agents       Workflows        Runs
              └─────────────┼─────────────┘
                            │
                       Agent Runtime
                            │
               ┌────────────┼────────────┐
-              │            │            │
              LLM         Tools       Policies
-              │            │            │
               └────────────┼────────────┘
                            │
                       PostgreSQL
 ```
 
-The application should initially be deployed as one application.
+Layering is strict:
 
-Do not split components into microservices unless there is a demonstrated need.
+```text
+UI → API / Server Action → Service → Repository → Prisma → PostgreSQL
+```
+
+Repositories own database access. Services own business logic. Route
+handlers own HTTP concerns. Never query Prisma from a React component.
 
 ---
 
-# 7. Repository Structure
-
-Use a clear and predictable project structure.
-
-Suggested structure:
+# 10. Repository Structure
 
 ```text
-agent-platform/
-
-├── app/
-│   ├── (auth)/
-│   ├── dashboard/
-│   ├── agents/
-│   ├── workflows/
-│   ├── runs/
-│   ├── approvals/
-│   ├── settings/
-│   └── api/
-│
-├── components/
-│   ├── ui/
-│   ├── agents/
-│   ├── workflows/
-│   ├── runs/
-│   └── approvals/
-│
-├── lib/
-│   ├── agents/
-│   ├── workflows/
-│   ├── runs/
-│   ├── tools/
-│   ├── integrations/
-│   ├── policies/
-│   ├── approvals/
-│   ├── ai/
-│   ├── db/
-│   └── auth/
-│
-├── prisma/
-│   ├── schema.prisma
-│   └── migrations/
-│
-├── tests/
-│   ├── unit/
-│   └── integration/
-│
-├── public/
-│
-├── docker-compose.yml
-├── package.json
-├── tsconfig.json
-├── eslint.config.*
-├── .env.example
-├── CLAUDE.md
-└── README.md
+app/          route groups: (app) authenticated, (marketing) public, api/
+components/   ui/ plus feature-scoped folders
+lib/
+  agents/       agent config, schemas, repository, service
+  ai/           AIProvider abstraction + implementations
+  auth/         current user resolution
+  crypto/       token encryption at rest
+  db/           Prisma client
+  entities/     Record Types and records
+  harness/      HARNESS pipelines
+  integrations/ one folder per provider + oauth-adapter/registry
+  mcp/          tool registry, server, client, tools/
+  organisations/
+  policies/     policy engine
+  routing/      classification and dispatch
+  runs/         run persistence and querying
+  runtime/      the LOOP agent runtime
+  workflows/
+prisma/       schema.prisma + migrations
+tests/        unit/ and integration/
+docs/         production-notes.md and other durable records
 ```
 
-The exact structure can change if there is a strong reason, but maintain clear separation between UI, API, business logic, database access and infrastructure.
+Maintain clear separation between UI, API, business logic, database
+access and infrastructure.
 
 ---
 
-# 8. Core Domain Concepts
+# 11. Agent Runtime
 
-The following concepts should form the foundation of the application.
+The runtime supports: input, agent instructions, available tools, tool
+calls, tool results, run state, errors, completion, human approval, and
+maximum iteration limits.
 
-## Organisation
+When a run pauses for approval, the in-progress conversation is snapshot
+to `AgentRun.messages` so `resumeRun()` continues rather than restarting.
 
-A company using the platform.
-
-An organisation owns:
-
-* Users
-* Agents
-* Workflows
-* Integrations
-* Runs
-* Approvals
-* Audit logs
-
-Design the database with multi-tenancy in mind from the beginning.
-
-Every organisation-owned record must be associated with an organisation.
+Known gap, deliberately unaddressed and documented: **there is no
+idempotency guard.** Re-triggering the same underlying event runs the
+work again. This is currently safe only because the configured actions
+happen to be idempotent (find-or-create semantics). Anything
+non-idempotent added later — sending mail, posting a notification,
+charging a card — will duplicate. Adding idempotency keys is required
+before that point.
 
 ---
 
-## User
+# 12. Human Approval
 
-A person belonging to an organisation.
+The agent does not automatically perform every action.
 
-Eventually users will have roles such as:
+```text
+Agent proposes action
+        ↓
+Policy: approval required
+        ↓
+WAITING_FOR_APPROVAL   ← the exact proposed tool arguments are stored,
+        ↓                so the approver reviews the real content
+Human approves / rejects
+        ↓
+Run resumes or terminates
+```
 
-* Owner
-* Admin
-* Member
-* Approver
+An approval records: run, requested action, reason, proposed input,
+timestamp, status, approver, and decision time.
 
-For V1, a simple role model is sufficient.
+Gaps worth knowing: nothing currently *notifies* anyone that an approval
+is waiting, and `UserRole.APPROVER` exists but is not enforced anywhere.
+Both are required before this is trustworthy in a real business.
 
 ---
 
-## Agent
+# 13. Validation, Errors, Logging, Security
 
-An AI worker with:
+## Validation
 
-* Name
-* Description
-* Instructions
-* Model configuration
-* Available tools
-* Organisation
-* Status
-* Version
-* Creation date
-* Update date
+Every API endpoint, server action, webhook payload and tool input is
+validated with Zod. Never trust external data.
 
-Example:
+## Error handling
 
-```text
-Name:
-Quote Agent
+Distinguish and handle deliberately: validation, authentication,
+authorisation, tool, external API, AI, database, workflow, and unknown
+errors. No silent failures. No empty catch blocks. Associate failures
+with the relevant run.
 
-Description:
-Processes incoming quote requests.
+## Logging
 
-Instructions:
-Read quote requests and extract the relevant information.
-Use the available tools to retrieve customer and product information.
-Never send a quote above £10,000 without approval.
-```
+Structured, with `organisationId`, `agentId`, `runId`, `toolCallId` where
+applicable. Never log secrets or credentials.
 
----
-
-# 9. Agent Tools
-
-Agents must NOT have unrestricted access to the system.
-
-They interact with the outside world through explicitly defined tools.
-
-Examples:
-
-```text
-find_customer
-find_product
-check_inventory
-calculate_quote
-create_quote
-send_email
-```
-
-A tool should contain:
-
-* Name
-* Description
-* Input schema
-* Output schema
-* Handler
-* Permission requirements
-
-Example conceptual tool:
-
-```typescript
-{
-  name: "find_customer",
-  description: "Find a customer by email address",
-  inputSchema: ...,
-  execute: async (...) => ...
-}
-```
-
-The LLM may request a tool.
-
-The application must then:
-
-1. Validate the tool name.
-2. Validate the parameters.
-3. Check the agent has access to the tool.
-4. Check organisation permissions.
-5. Apply relevant policies.
-6. Execute the tool.
-7. Record the tool call.
-8. Return the result to the agent.
-
-The LLM must never bypass this system.
-
----
-
-# 10. Agent Runtime
-
-The agent runtime is the core of the application.
-
-A basic run should operate conceptually like:
-
-```text
-Input
- ↓
-Agent receives input
- ↓
-LLM interprets input
- ↓
-LLM determines next action
- ↓
-Tool request
- ↓
-Validate tool request
- ↓
-Policy check
- ↓
-Execute tool
- ↓
-Record result
- ↓
-Return result to LLM
- ↓
-LLM determines next action
- ↓
-...
- ↓
-Complete
-```
-
-The runtime should support:
-
-* Input
-* Agent instructions
-* Available tools
-* Tool calls
-* Tool results
-* Run state
-* Errors
-* Completion
-* Human approval
-* Maximum iteration limits
-
-There must always be safeguards against infinite agent loops.
-
-For example:
-
-```text
-MAX_AGENT_STEPS = 20
-```
-
-The exact number should be configurable.
-
----
-
-# 11. Run System
-
-Every time an agent executes, create an AgentRun.
-
-Example:
-
-```text
-AgentRun
-
-ID: run_123
-Agent: Quote Agent
-Status: RUNNING
-Started: 10:42
-```
-
-Each run should contain RunSteps.
-
-Example:
-
-```text
-Run
- │
- ├── Input received
- │
- ├── LLM decision
- │
- ├── find_customer
- │
- ├── find_product
- │
- ├── check_inventory
- │
- ├── calculate_quote
- │
- ├── create_quote
- │
- └── send_email
-```
-
-The user should be able to inspect this history.
-
----
-
-# 12. Run Status
-
-Use explicit statuses.
-
-```text
-PENDING
-RUNNING
-WAITING_FOR_APPROVAL
-COMPLETED
-FAILED
-CANCELLED
-```
-
-Do not represent important workflow state using arbitrary strings.
-
-Use TypeScript enums/unions and corresponding database enums where appropriate.
-
----
-
-# 13. Human Approval
-
-Human approval is a fundamental part of the platform.
-
-The agent should not automatically perform every action.
-
-Example:
-
-```text
-Quote = £7,500
-→ Automatically allowed
-
-Quote = £27,000
-→ Approval required
-```
-
-The agent runtime should be able to pause.
-
-```text
-Agent
- ↓
-Policy
- ↓
-Approval required
- ↓
-WAITING_FOR_APPROVAL
- ↓
-Human approves
- ↓
-Agent resumes
- ↓
-Continue workflow
-```
-
-The approval record should contain:
-
-* Run ID
-* Requested action
-* Reason
-* Requested timestamp
-* Status
-* Approver
-* Decision timestamp
-
----
-
-# 14. Policy System
-
-Policies determine what agents are allowed to do.
-
-The LLM should not be the authority on permissions.
-
-Example:
-
-```text
-Quote under £10,000:
-ALLOW
-
-Quote over £10,000:
-REQUIRE_APPROVAL
-
-Delete customer:
-DENY
-
-Send external email:
-ALLOW
-```
-
-The policy engine should be deterministic application code.
-
-AI can recommend an action.
-
-Application code decides whether that action is permitted.
-
----
-
-# 15. AI Provider Abstraction
-
-Do not scatter model-specific SDK calls throughout the application.
-
-Create an abstraction.
-
-Conceptually:
-
-```text
-AI Provider
-    │
-    ├── Ollama
-    ├── OpenAI
-    ├── Anthropic
-    └── Future providers
-```
-
-The agent runtime should interact with a common interface.
-
-For example:
-
-```typescript
-interface AIProvider {
-  generateResponse(...): Promise<AIResponse>;
-}
-```
-
-The exact implementation should be decided during development.
-
-The purpose is to prevent the entire system becoming tightly coupled to one provider.
-
----
-
-# 16. Local AI
-
-During development:
-
-```text
-Next.js
-   ↓
-Agent Runtime
-   ↓
-AI Provider
-   ↓
-Ollama
-   ↓
-RTX 3090
-```
-
-The model does not need to be perfect.
-
-The purpose is to develop:
-
-* Agent architecture
-* Tool calling
-* State handling
-* Prompting
-* Structured outputs
-* Error handling
-* Testing
-
-Commercial models can be added later.
-
----
-
-# 17. Database Schema
-
-Use PostgreSQL through Prisma.
-
-Initial entities should include approximately:
-
-```text
-Organisation
-User
-Agent
-AgentTool
-Workflow
-WorkflowNode
-AgentRun
-RunStep
-ToolCall
-Approval
-AuditLog
-```
-
-Do not add unnecessary entities just because they might be useful later.
-
-Database design should support:
-
-* Organisation isolation
-* Agent ownership
-* Run history
-* Tool execution history
-* Approval history
-* Auditability
-
----
-
-# 18. Database Access
-
-Do not query PostgreSQL directly from React components.
-
-Use:
-
-```text
-UI
- ↓
-API / Server Action
- ↓
-Service
- ↓
-Repository
- ↓
-Prisma
- ↓
-PostgreSQL
-```
-
-Repositories are responsible for database access.
-
-Services contain business logic.
-
-Routes/API handlers deal with HTTP concerns.
-
-This separation is important for maintainability and testing.
-
----
-
-# 19. Validation
-
-Use Zod for external input.
-
-Every API endpoint should validate input.
-
-Example:
-
-```text
-HTTP Request
-     ↓
-Zod validation
-     ↓
-Service
-     ↓
-Repository
-```
-
-Never assume incoming data is valid.
-
-Tool parameters should also be validated.
-
----
-
-# 20. Error Handling
-
-Errors should be deliberate and structured.
-
-The application must distinguish between:
-
-```text
-Validation error
-Authentication error
-Authorisation error
-Tool error
-External API error
-AI error
-Database error
-Workflow error
-Unknown error
-```
-
-Do not silently swallow errors.
-
-Do not use empty catch blocks.
-
-Every important failure should be logged and associated with the relevant run where possible.
-
----
-
-# 21. Logging
-
-Every agent run should have structured logs.
-
-Example:
-
-```text
-RUN_STARTED
-AGENT_DECISION
-TOOL_REQUESTED
-TOOL_EXECUTED
-TOOL_FAILED
-APPROVAL_REQUESTED
-APPROVAL_GRANTED
-RUN_COMPLETED
-RUN_FAILED
-```
-
-Logs should contain relevant identifiers such as:
-
-* organisationId
-* agentId
-* runId
-* toolCallId
-
-Do not log secrets or sensitive credentials.
-
----
-
-# 22. Security Principles
-
-Security must be considered from the beginning.
-
-Requirements:
+## Security
 
 * Never expose API keys to the browser.
-* Never allow users to access another organisation's records.
-* Validate all external input.
+* Never allow cross-organisation data access. Every org-owned query is
+  scoped by `organisationId`, and services re-look-up by org rather than
+  trusting an id from the caller.
 * Authorise every sensitive action.
-* Keep credentials server-side.
-* Never allow arbitrary code execution through an agent tool.
-* Restrict tools available to each agent.
-* Do not let the LLM bypass application permissions.
-* Record important external actions.
-* Avoid logging sensitive information unnecessarily.
+* Never allow arbitrary code execution through a tool.
+* Restrict tools per agent; the LLM cannot bypass application
+  permissions.
+* Credentials encrypted at rest, server-side only.
 
 ---
 
-# 23. Initial UI
+# 14. UI Principles
 
-The UI should be professional but simple.
+Professional, simple, and honest about state.
 
-## Dashboard
+The most important surface is the **run detail page**: it must make it
+immediately obvious what the agent did, in order, with results and cost.
 
-Display:
-
-```text
-Agents
-Active Runs
-Completed Runs
-Failed Runs
-Pending Approvals
-```
+Surface half-configured setups rather than failing silently. An ACTIVE
+workflow with no classifier, no active handler, or no connected mailbox
+is doing nothing, and the UI must say so
+(`lib/workflows/workflow-health.ts`). Extend this pattern to new
+primitives — a business owner should never have to guess whether their
+setup actually works.
 
 ---
 
-## Agents page
+# 15. Testing Philosophy
 
-```text
-Agents
-
-Quote Agent
-Status: Active
-Runs: 128
-
-Customer Support Agent
-Status: Draft
-Runs: 0
-
-[Create Agent]
-```
-
----
-
-## Create Agent
-
-Fields:
-
-```text
-Name
-Description
-Instructions
-Model
-Tools
-```
-
----
-
-## Agent detail page
-
-Sections:
-
-```text
-Overview
-Instructions
-Tools
-Configuration
-Runs
-```
-
----
-
-## Run detail page
-
-This is one of the most important pages.
-
-Display:
-
-```text
-Run #1029
-
-Status: COMPLETED
-
-Input
-----------------
-"Please quote 500 units of Product A"
-
-
-Steps
-----------------
-
-1. Input received
-
-2. Classified as quote request
-
-3. find_customer
-   Result: Customer found
-
-4. find_product
-   Result: Product found
-
-5. check_inventory
-   Result: 700 units available
-
-6. calculate_quote
-   Result: £7,500
-
-7. create_quote
-   Result: Quote #18292
-
-8. send_email
-   Result: Email sent
-
-
-Completed in: 8.4 seconds
-```
-
-The UI should make it easy to understand exactly what the agent did.
-
----
-
-# 24. Initial Workflow
-
-For V1, do not build a complex drag-and-drop workflow editor.
-
-Start with a simple workflow representation.
-
-For example:
-
-```text
-Trigger
-   ↓
-Agent
-   ↓
-Tools
-   ↓
-Policy
-   ↓
-Approval
-   ↓
-Action
-```
-
-The database should nevertheless be designed so more complex workflows can be introduced later.
-
----
-
-# 25. First Demonstration
-
-The first complete demonstration should be:
-
-```text
-User enters:
-
-"Customer ABC wants 500 units of Product A."
-
-        ↓
-
-Quote Agent
-
-        ↓
-
-Extract customer/product/quantity
-
-        ↓
-
-find_customer()
-
-        ↓
-
-find_product()
-
-        ↓
-
-check_inventory()
-
-        ↓
-
-calculate_quote()
-
-        ↓
-
-create_quote()
-
-        ↓
-
-Policy check
-
-        ↓
-
-send_email()
-
-        ↓
-
-COMPLETED
-```
-
-All steps should appear in the Run interface.
-
-Initially, these tools can use mock/local data.
-
-Do not start by integrating with ten external services.
-
----
-
-# 26. Development Phases
-
-Build the application incrementally.
-
-## Phase 1 — Project foundation
-
-Create:
-
-* Next.js project
-* TypeScript strict mode
-* Tailwind
-* shadcn/ui
-* ESLint
-* pnpm
-* Docker
-* PostgreSQL
-* Prisma
-* Environment configuration
-* Git repository
-* README
-* CLAUDE.md
-
-Goal:
-
-Application runs locally and connects successfully to PostgreSQL.
-
----
-
-## Phase 2 — Database
-
-Implement:
-
-* Organisation
-* User
-* Agent
-* AgentRun
-* RunStep
-
-Create migrations.
-
-Seed development data.
-
-Goal:
-
-Create and retrieve agents from PostgreSQL.
-
----
-
-## Phase 3 — Agent UI
-
-Build:
-
-* Dashboard
-* Agents list
-* Create Agent
-* Agent detail
-* Edit Agent
-
-Goal:
-
-A user can create an agent through the UI.
-
----
-
-## Phase 4 — AI abstraction
-
-Implement:
-
-```text
-AIProvider
-OllamaProvider
-```
-
-Test a simple prompt.
-
-Goal:
-
-The application can send input to a local model and receive structured output.
-
----
-
-## Phase 5 — Tool system
-
-Create the first tools:
-
-```text
-find_customer
-find_product
-check_inventory
-calculate_quote
-```
-
-Initially these can use local database data.
-
-Goal:
-
-The agent can request tools and receive their results.
-
----
-
-## Phase 6 — Agent runtime
-
-Implement:
-
-```text
-Input
- ↓
-AI
- ↓
-Tool call
- ↓
-Tool result
- ↓
-AI
- ↓
-...
- ↓
-Complete
-```
-
-Add:
-
-* Step limits
-* Error handling
-* Run persistence
-* Tool call persistence
-
-Goal:
-
-A complete agent run is persisted and visible in the UI.
-
----
-
-## Phase 7 — Policy system
-
-Implement simple deterministic policies.
-
-Example:
-
-```text
-quote < £10,000
-→ automatic
-
-quote >= £10,000
-→ approval
-```
-
-Goal:
-
-Agent actions are controlled by application-level policies.
-
----
-
-## Phase 8 — Approval system
-
-Implement:
-
-```text
-WAITING_FOR_APPROVAL
-```
-
-Create approval UI.
-
-Allow:
-
-```text
-Approve
-Reject
-```
-
-Goal:
-
-Agent can pause and continue after human approval.
-
----
-
-## Phase 9 — Email integration
-
-Only after the local workflow is reliable.
-
-Add one provider first:
-
-Either Gmail or Microsoft Outlook.
-
-The email should trigger the quote workflow.
-
-Goal:
-
-Real email → agent → processing → response.
-
----
-
-## Phase 10 — Testing and hardening
-
-Add:
-
-* Unit tests
-* Integration tests
-* Agent runtime tests
-* Tool tests
-* API tests
-* Database tests
-* Permission tests
-* Failure tests
-
-Test cases should include:
-
-```text
-Valid request
-Invalid request
-Unknown customer
-Unknown product
-Insufficient inventory
-AI produces invalid tool parameters
-Tool fails
-AI loops
-Approval required
-Approval rejected
-External API unavailable
-Database failure
-```
-
----
-
-# 27. Testing Philosophy
-
-Do not only test whether functions return the expected output.
-
-Test behaviour.
-
-For the agent:
+Test behaviour, not just return values. For agentic systems, express
+tests as:
 
 ```text
 Given this input,
 the agent should eventually perform these actions
-and should never perform these forbidden actions.
+and must never perform these forbidden actions.
 ```
 
-For example:
+For example, a £25,000 quote must produce an approval request and must
+**not** send an email.
 
-```text
-Input:
-Quote for £25,000
-
-Expected:
-create_quote()
-approval_requested()
-
-Forbidden:
-send_email()
-```
-
-This is particularly important for agentic systems.
+Cover: valid and invalid requests, unknown records, insufficient stock,
+invalid tool parameters from the model, tool failures, agent loops,
+approval required, approval rejected, external API unavailable, database
+failure, and cross-organisation access attempts.
 
 ---
 
-# 28. TypeScript Standards
+# 16. TypeScript Standards
 
-The project is intended to improve and demonstrate professional TypeScript skills.
-
-Use:
-
-* Strict TypeScript
-* Explicit types at important boundaries
-* Discriminated unions where appropriate
-* Zod schemas for runtime validation
-* No `any` unless there is an extremely strong justification
-* Avoid unnecessary type assertions
-* Small focused functions
-* Clear interfaces
-* Predictable naming
-* Consistent error handling
-
-Do not allow Claude Code to generate unnecessary abstractions simply to make the project appear complex.
-
-Prefer readable code.
+* Strict mode. Explicit types at important boundaries.
+* Discriminated unions where they model the domain.
+* Zod schemas for anything crossing a runtime boundary, used as the
+  single source of truth for both validation and inferred types.
+* No `any` without an extremely strong justification.
+* Small focused functions, clear interfaces, predictable naming.
+* Do not create abstractions to appear sophisticated. Prefer readable
+  code.
 
 ---
 
-# 29. Claude Code Development Rules
-
-Claude Code is being used as a development assistant.
-
-It should NOT blindly implement large features without explaining them.
+# 17. Claude Code Development Rules
 
 Before significant implementation:
 
@@ -1370,356 +706,217 @@ Before significant implementation:
 3. Identify files that will change.
 4. Explain important TypeScript concepts involved.
 5. Identify trade-offs.
-6. Implement only after the approach is understood.
+6. Implement only once the approach is understood.
 
 After implementation:
 
-1. Explain what changed.
-2. Explain why.
-3. Explain important code paths.
-4. List changed files.
-5. Run lint.
-6. Run typecheck.
-7. Run tests.
-8. Run build where appropriate.
-9. Report failures honestly.
+1. Explain what changed and why.
+2. Explain important code paths.
+3. List changed files.
+4. Run lint, typecheck, tests, and build where appropriate.
+5. **Report failures honestly.** Never describe unverified work as
+   verified.
 
-If there is an architectural decision, explain it.
-
-The purpose is not simply to generate code.
-
-The purpose is to build a professional system while teaching the developer how the system works.
+Always explain architectural decisions. The purpose is not only to
+generate code, but to build a professional system the developer fully
+understands.
 
 ---
 
-# 30. Claude Code Must Not
+# 18. Claude Code Must Not
 
-Do not:
-
-* Create unnecessary files.
-* Create microservices without justification.
+* Build a vertical feature as a primitive. Check section 3 first.
+* Add a hardcoded domain table, tool, or pipeline for one customer.
+* Add a named `Agent` column for one pipeline's setting — use
+  `pipelineConfig`.
+* Write a bespoke integration where a generic HTTP call would serve.
+* Create unnecessary files or abstractions.
 * Add dependencies without explaining why.
-* Replace working architecture unnecessarily.
-* Use `any` to silence TypeScript errors.
-* Disable ESLint rules to make errors disappear.
-* Disable TypeScript strictness.
-* Ignore failing tests.
-* Hide errors.
-* Hard-code secrets.
-* Put secrets in Git.
-* Introduce Kubernetes.
-* Introduce Kafka.
-* Introduce Redis unless there is a demonstrated need.
-* Introduce Temporal unless the workflow requirements justify it.
-* Introduce a vector database before it is necessary.
+* Use `any` to silence TypeScript, or disable ESLint rules to make errors
+  disappear.
+* Ignore failing tests, hide errors, or claim unverified success.
+* Hard-code secrets or commit them.
+* Introduce Kubernetes, Kafka, Redis, Temporal, or a vector database
+  without a demonstrated need.
+* Build a drag-and-drop workflow editor. It is enormous and premature.
 
 ---
 
-# 31. Git Workflow
+# 19. Git Workflow
 
-Use meaningful commits.
-
-Examples:
+Meaningful, scoped commits. No enormous commits mixing unrelated changes.
 
 ```text
-feat: add agent database model
-feat: add agent creation API
-feat: add agent creation UI
-feat: add local AI provider
-feat: add tool execution system
-feat: persist agent runs
+feat: add scheduled trigger type
 fix: prevent duplicate tool execution
 test: add quote agent runtime tests
+docs: record production database isolation
 ```
-
-Do not make enormous commits containing unrelated changes.
 
 ---
 
-# 32. CI
+# 20. CI
 
-GitHub Actions should eventually run:
+GitHub Actions runs: install → lint → format check → typecheck →
+migrations → tests → build. A pull request is not complete if these fail.
 
-```text
-Install
- ↓
-Lint
- ↓
-Typecheck
- ↓
-Tests
- ↓
-Build
-```
-
-A pull request should not be considered complete if these checks fail.
+`build` runs `prisma migrate deploy && next build`, so every deploy keeps
+the target database's schema current. This exists because its absence
+caused a real production outage — see `docs/production-notes.md`.
 
 ---
 
-# 33. Environment Variables
+# 21. Environment Variables
 
-Use:
-
-```text
-.env.local
-.env.example
-```
-
-Never commit real secrets.
-
-Example:
+`.env.local` for local development, `.env.example` as the checked-in
+template. Never commit real secrets.
 
 ```text
 DATABASE_URL=
-OLLAMA_BASE_URL=
 AI_PROVIDER=
+OLLAMA_BASE_URL=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+TOKEN_ENCRYPTION_KEY=
+GOOGLE_CLIENT_ID= / GOOGLE_CLIENT_SECRET= / ...
+MICROSOFT_CLIENT_ID= / MICROSOFT_CLIENT_SECRET= / ...
+SLACK_CLIENT_ID= / SLACK_CLIENT_SECRET= / ...
 ```
 
-Future integrations may add:
+Production keys live only in the hosting provider's environment. Local
+development continues to use test keys — Clerk production keys do not
+work on `localhost`.
+
+---
+
+# 22. Roadmap
+
+Ordered by how much each unlocks, not by how visible it is.
+
+## Tier 1 — removes a ceiling on genericness
+
+1. **Typed + relational Record Type fields**, plus an `aggregate_records`
+   tool. Unblocks arithmetic, dates, relations, and any analytical
+   question.
+2. **Policies as data.** Makes the core differentiator self-serve.
+3. **`SCHEDULE` trigger.** Reactive → proactive. Also removes the manual
+   inbox-check button.
+4. **User-composable pipelines.** Removes the need for a developer per
+   new process shape.
+
+## Tier 2 — makes it trustworthy enough to sell
+
+5. Approval notifications, and approving from email/Slack.
+6. Role enforcement (`APPROVER` is currently decorative).
+7. Idempotency keys on runs.
+8. Retries, failure alerting, and a dead-letter path.
+9. Dry-run / simulation mode — test an agent with no side effects.
+10. SLA timers and escalation.
+
+## Tier 3 — breadth
+
+11. `call_api` — generic authenticated HTTP.
+12. `search_web`.
+13. Knowledge base / retrieval over the business's own documents.
+14. CSV import/export.
+15. Spreadsheet read/write.
+16. Further triggers: form, file drop, inbound message, manual.
+17. Further channels: SMS/WhatsApp.
+18. Commerce and finance connections: Stripe, Shopify, Xero, HubSpot.
+19. Cross-run memory.
+20. Agent version history and rollback.
+
+## Tier 4 — commercial
+
+Usage metering, billing, and surfacing outcome metrics (see section 23).
+The audit trail already holds the raw data for these; nothing surfaces
+them yet.
+
+---
+
+# 23. Commercial Direction
+
+The proposition:
+
+> We identify repetitive business processes and turn them into AI-powered
+> workflows that understand information, make decisions, interact with
+> business systems, and complete tasks — under rules you control.
+
+Report business outcomes, not AI usage:
 
 ```text
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
+Requests processed        1,248
+Automatically completed   1,031
+Human approvals             183
+Failed                       34
+Estimated hours saved       412
 ```
 
 ---
 
-# 34. Future Architecture
+# 24. Engineering Principle
 
-Do not implement this now, but design so the application can eventually evolve into:
+> **Build the simplest system that proves the next piece of the product,
+> while maintaining professional engineering standards.**
 
-```text
-                     Web Application
-                            │
-                            ▼
-                         API
-                            │
-                    ┌───────┴────────┐
-                    │                │
-                Workflow          Agent Runtime
-                Engine                │
-                    │                 │
-                    └────────┬────────┘
-                             │
-                         Workers
-                             │
-                  ┌──────────┼──────────┐
-                  │          │          │
-                 AI         Tools    Integrations
-                  │          │          │
-                  └──────────┼──────────┘
-                             │
-                         PostgreSQL
-```
+Complexity is not quality. The architecture must be able to grow into a
+serious B2B platform, but must stay small enough that the developer
+understands every major part of it.
 
-Potential future infrastructure:
+And, specific to this product:
 
-* Temporal
-* Redis
-* Background workers
-* S3/object storage
-* Cloud deployment
-* Managed AI APIs
-* More integrations
-* Enterprise authentication
-* Billing
-* Usage metering
-* Advanced workflow editor
-* Knowledge bases/RAG
-* Advanced observability
-
-These should only be introduced when required.
+> **When a customer needs something new, the right question is which
+> primitive is too weak — not which special case to add.**
 
 ---
 
-# 35. Long-Term Product
+# 25. Workflow Automation and Branching Policy
 
-Eventually the platform should allow businesses to build agents such as:
-
-```text
-Quote Agent
-
-Customer Support Agent
-
-Invoice Agent
-
-Sales Operations Agent
-
-Order Processing Agent
-
-Recruitment Agent
-
-Procurement Agent
-
-Scheduling Agent
-```
-
-Each agent should use the same underlying infrastructure:
-
-```text
-Agent
-+
-Instructions
-+
-Tools
-+
-Triggers
-+
-Policies
-+
-Workflow
-+
-Memory/Knowledge
-+
-Human approval
-+
-Audit trail
-```
-
-The business should be able to deploy an agent without rebuilding the underlying system.
-
----
-
-# 36. Commercial Direction
-
-The eventual commercial proposition is:
-
-> We identify repetitive business processes and turn them into AI-powered workflows that can understand information, make decisions, interact with business systems and complete tasks automatically.
-
-The product should focus on measurable business outcomes:
-
-* Hours saved
-* Tasks completed
-* Percentage automated
-* Human interventions
-* Processing time
-* Error rate
-* Cost savings
-
-The customer should ultimately be able to see:
-
-```text
-Quote Agent
-
-Requests processed:        1,248
-Automatically completed:   1,031
-Human approvals:             183
-Failed:                       34
-
-Estimated hours saved:       412
-```
-
-This is more valuable than simply showing "AI usage".
-
----
-
-# 37. Definition of V1 Complete
-
-V1 is complete when the following works locally:
-
-```text
-User
- ↓
-Next.js dashboard
- ↓
-Create Agent
- ↓
-Configure instructions
- ↓
-Select tools
- ↓
-Provide test input
- ↓
-Agent Runtime
- ↓
-Local LLM
- ↓
-Tool calls
- ↓
-Database
- ↓
-Policy check
- ↓
-Human approval if necessary
- ↓
-Agent continues
- ↓
-Run completes
- ↓
-Complete run history visible in UI
-```
-
-The entire process must be reproducible locally using Docker and documented in the README.
-
-A new developer should be able to clone the repository, configure environment variables, run Docker Compose, install dependencies, run migrations, seed the database and start the application without undocumented manual steps.
-
----
-
-# 38. First Milestone
-
-Do NOT attempt to build the entire specification immediately.
-
-The first implementation milestone is:
-
-> **Create an Agent and persist it to PostgreSQL.**
-
-Then:
-
-> **Run the Agent against a test input and persist the Run.**
-
-Then:
-
-> **Allow the Agent to call one controlled tool.**
-
-Then:
-
-> **Display the complete run in the UI.**
-
-Everything should be built incrementally from there.
-
----
-
-# 39. Engineering Principle
-
-The most important principle for this project is:
-
-> **Build the simplest system that proves the next piece of the product, while maintaining professional engineering standards.**
-
-Do not confuse complexity with quality.
-
-The architecture should be capable of growing into a serious B2B agentic automation platform, but V1 should remain small enough that the developer understands every major part of it.
-
----
-
-# 40. Workflow Automation and Branching Policy
-
-The following are enforced mechanically (via `.claude/settings.json` hooks and, from Phase 2 onward, GitHub branch protection) rather than left to memory or convention, so they cannot be silently skipped.
+Enforced mechanically via `.claude/settings.json` hooks and GitHub branch
+protection, so they cannot be silently skipped.
 
 ## Prompt transcript
 
-Every user prompt is appended automatically to `transcript/prompts.md` by a `UserPromptSubmit` hook (`.claude/hooks/log-prompt.sh`). This is unconditional — it logs every prompt, including ones a user asks not to be logged in the moment; if a prompt must be excluded, remove it from `transcript/prompts.md` afterward. `transcript/` is gitignored — it's a local working log, not part of the repository.
+Every user prompt is appended to `transcript/prompts.md` by a
+`UserPromptSubmit` hook (`.claude/hooks/log-prompt.sh`). This is
+unconditional — it logs every prompt, including ones a user asks not to be
+logged in the moment; if a prompt must be excluded, remove it from
+`transcript/prompts.md` afterward. `transcript/` is gitignored — it's a
+local working log, not part of the repository.
 
 ## Frontend screenshots before a PR
 
-Editing any file under `app/`, `components/`, or any `.tsx`/`.css` file sets a local marker (`.claude/.frontend-dirty`, gitignored) via a `PostToolUse` hook (`.claude/hooks/mark-frontend-dirty.sh`). A `PreToolUse` hook (`.claude/hooks/check-pr-screenshot.sh`) blocks `gh pr create` while that marker is set. To proceed: take a screenshot of the running app, attach it to the PR body, then run `rm .claude/.frontend-dirty`.
+Editing any file under `app/`, `components/`, or any `.tsx`/`.css` file
+sets a local marker (`.claude/.frontend-dirty`, gitignored) via a
+`PostToolUse` hook (`.claude/hooks/mark-frontend-dirty.sh`). A
+`PreToolUse` hook (`.claude/hooks/check-pr-screenshot.sh`) blocks
+`gh pr create` while that marker is set. To proceed: take a screenshot of
+the running app, attach it to the PR body, then run
+`rm .claude/.frontend-dirty`.
 
-This gate can only enforce an explicit acknowledgment step — it cannot verify a screenshot was actually taken or is accurate. Treat it as a forcing function against forgetting, not a substitute for actually looking at the page.
+This gate can only enforce an explicit acknowledgment step — it cannot
+verify a screenshot was actually taken or is accurate. Treat it as a
+forcing function against forgetting, not a substitute for actually
+looking at the page.
 
 ## Branching model
 
-In effect from Phase 2 onward — Phase 1 (project foundation) itself was built via direct commits to `main`, which was a deliberate one-time exception for initial scaffolding, not the ongoing policy:
-
 ```text
-main   — protected, always deployable
+main   — protected, always deployable, auto-deploys to production
   ↑ PR only
 dev    — protected, integration branch
   ↑ PR only
 feature/* — branched off dev, one per issue/feature
 ```
 
-* No direct pushes to `main` or `dev`. All changes land via a pull request.
+* No direct pushes to `main` or `dev`. All changes land via a pull
+  request.
 * Feature branches are cut from `dev`, not `main`.
-* `main` only receives merges from `dev` (releases), never directly from a feature branch.
-* Enforced server-side via GitHub branch protection rules on `main` and `dev` (required PR, required `ci` status check, no direct pushes, no force pushes, enforced for admins too — verified with a real rejected push, not just configured and assumed). A `PreToolUse` hook (`.claude/hooks/block-protected-push.sh`) also blocks direct `git push` to `main`/`dev` locally, as a fast failure ahead of the server-side rejection.
+* `main` only receives merges from `dev` (releases), never directly from
+  a feature branch.
+* Enforced server-side via GitHub branch protection on `main` and `dev`
+  (required PR, required `ci` status check, no direct pushes, no force
+  pushes, enforced for admins too). A `PreToolUse` hook
+  (`.claude/hooks/block-protected-push.sh`) also blocks direct
+  `git push` to `main`/`dev` locally, as a fast failure ahead of the
+  server-side rejection.

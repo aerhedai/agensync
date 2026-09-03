@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import type { Agent, User } from "@/lib/generated/prisma/client";
 import { runHarnessPipeline } from "@/lib/harness/run-harness-pipeline";
 import { resumeRun } from "@/lib/runtime/agent-runtime";
+import { provisionEmailWorkflow } from "@/lib/workflows/provision-email-workflow";
 
 // Same rationale as agent-runtime.test.ts: Ollama isn't reachable from CI,
 // so the harness's control flow — extraction, deterministic tool
@@ -23,6 +24,22 @@ function scriptedProvider(responses: AIResponse[]): AIProvider {
   };
 }
 
+async function cleanUpProvisionOrg(organisationId: string) {
+  await prisma.approval.deleteMany({ where: { organisationId } });
+  await prisma.toolCall.deleteMany({ where: { agentRun: { organisationId } } });
+  await prisma.runStep.deleteMany({ where: { agentRun: { organisationId } } });
+  await prisma.agentRun.deleteMany({ where: { organisationId } });
+  await prisma.workflowAgent.deleteMany({
+    where: { workflow: { organisationId } },
+  });
+  await prisma.workflow.deleteMany({ where: { organisationId } });
+  await prisma.agentTool.deleteMany({ where: { agent: { organisationId } } });
+  await prisma.agent.deleteMany({ where: { organisationId } });
+  await prisma.product.deleteMany({ where: { organisationId } });
+  await prisma.customer.deleteMany({ where: { organisationId } });
+  await prisma.organisation.deleteMany({ where: { id: organisationId } });
+}
+
 describe("harness pipeline", () => {
   const organisationId = "test-org-harness";
   let quoteAgent: Agent;
@@ -38,9 +55,8 @@ describe("harness pipeline", () => {
         currency: "GBP",
       },
     });
-    // Real per-org catalog rows the pipeline's real find_product/
-    // find_customer/check_inventory/calculate_quote tool calls resolve
-    // against — replaces the old shared lib/mcp/mock-data.ts arrays.
+    // Real per-org catalog rows the pipeline's real find_record /
+    // search_records tool calls resolve against.
     await prisma.product.create({
       data: {
         organisationId,
@@ -312,5 +328,73 @@ describe("harness pipeline", () => {
     expect(
       toolCalls.find((t) => t.toolName === "search_records")?.error,
     ).toMatch(/does not have access/i);
+  });
+
+  it("grants a provisioned quote agent every tool its pipeline actually calls", async () => {
+    // Regression test for a real migration bug: the tool consolidation
+    // mapped the old find_product grant onto find_record, but the quote
+    // pipeline's product lookup had become search_records — leaving
+    // already-provisioned quote agents unable to complete a run, with the
+    // grant check correctly refusing a tool they should have held.
+    //
+    // Asserted behaviourally rather than by comparing two lists: what the
+    // pipeline needs isn't introspectable, so the only honest check is to
+    // run it against a genuinely provisioned agent and require that
+    // nothing was refused.
+    const provisionOrgId = "test-org-harness-provisioned";
+    // Tolerate leftovers from an interrupted earlier run rather than
+    // failing on a unique-constraint violation unrelated to what's tested.
+    await cleanUpProvisionOrg(provisionOrgId);
+    await prisma.organisation.create({
+      data: {
+        id: provisionOrgId,
+        clerkOrgId: provisionOrgId,
+        name: "Provisioned Harness Org",
+        currency: "GBP",
+      },
+    });
+    await provisionEmailWorkflow({
+      organisationId: provisionOrgId,
+      currency: "GBP",
+      model: "test-model",
+      quoteKeywords: ["quote"],
+      complaintsKeywords: ["complaint"],
+      products: [
+        {
+          sku: "PROV-WIDGET",
+          name: "Product A",
+          unitPrice: 15,
+          stockQuantity: 700,
+        },
+      ],
+      customers: [
+        {
+          name: "Provisioned Buyer",
+          email: "buyer@provisioned.test",
+          company: "Provisioned Ltd",
+        },
+      ],
+    });
+
+    const provisionedQuoteAgent = await prisma.agent.findFirstOrThrow({
+      where: { organisationId: provisionOrgId, pipelineKey: "quote" },
+    });
+
+    const result = await runHarnessPipeline(
+      provisionedQuoteAgent,
+      "Quote 500 units of Product A for buyer@provisioned.test",
+      scriptedProvider([extractionResponse, composeResponse]),
+    );
+
+    const toolCalls = await prisma.toolCall.findMany({
+      where: { agentRunId: result.runId },
+    });
+    const refused = toolCalls.filter((t) =>
+      /does not have access/i.test(t.error ?? ""),
+    );
+    expect(refused.map((t) => t.toolName)).toEqual([]);
+    expect(result.status).toBe("WAITING_FOR_APPROVAL");
+
+    await cleanUpProvisionOrg(provisionOrgId);
   });
 });

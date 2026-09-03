@@ -17,7 +17,7 @@ import {
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 import type { ToolName } from "@/lib/mcp/tool-registry";
 
-const TOOL_NAME: ToolName = "save_storage_file";
+const TOOL_NAME: ToolName = "save_file";
 
 const inputSchema = {
   provider: z.enum(["google-drive", "sharepoint"]),
@@ -46,13 +46,13 @@ const outputSchema = {
 };
 
 /**
- * The write counterpart to create_storage_folder for file *content*
+ * The write counterpart to create_folder for file *content*
  * specifically. Ensures the folder path exists itself (same find-or-create
  * semantics), so this is usable on its own, not only after a separate
- * create_storage_folder call. Not approval-gated — same class as
- * create_storage_folder and the custom-entity write tools.
+ * create_folder call. Not approval-gated — same class as
+ * create_folder and the record write tools.
  */
-export function createSaveStorageFileTool(organisationId: string) {
+export function createSaveFileTool(organisationId: string) {
   return {
     name: TOOL_NAME,
     description:

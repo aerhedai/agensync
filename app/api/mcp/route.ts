@@ -1,5 +1,5 @@
-// Disabled. This route exposed Aperator's MCP tool server (find_customer,
-// find_product, check_inventory, calculate_quote, send_email) directly over
+// Disabled. This route exposed Aperator's MCP tool server (find_record,
+// search_records, create_record, send_email, ...) directly over
 // HTTP with no authentication, and — worse — no gating: the approval-gate
 // and audit-trail logic (lib/runtime/tool-execution.ts's
 // gateAndExecuteTool) only runs in the in-process client wrapper

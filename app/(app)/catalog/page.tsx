@@ -26,7 +26,7 @@ export default async function CatalogPage() {
               <span className="font-medium">Products</span>
               <span className="text-sm text-muted-foreground">
                 {products.length} product{products.length === 1 ? "" : "s"} —
-                what find_product, check_inventory, and calculate_quote look up.
+                what agents find with find_record and search_records.
               </span>
             </CardContent>
           </Card>
@@ -37,7 +37,7 @@ export default async function CatalogPage() {
               <span className="font-medium">Customers</span>
               <span className="text-sm text-muted-foreground">
                 {customers.length} customer{customers.length === 1 ? "" : "s"} —
-                what find_customer looks up.
+                what agents find with find_record and search_records.
               </span>
             </CardContent>
           </Card>

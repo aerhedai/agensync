@@ -177,7 +177,7 @@ export async function uploadFile(
 
 // Same call signature shape as google-drive/client.ts's uploadOrReplaceFile
 // (the `replace` argument is a no-op here — uploadFile already replaces by
-// path) so the save_storage_file tool can treat both providers uniformly.
+// path) so the save_file tool can treat both providers uniformly.
 export function uploadOrReplaceFile(
   accessToken: string,
   driveId: string,

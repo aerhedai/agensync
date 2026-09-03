@@ -1,5 +1,5 @@
 // Deterministic, application-code policy checks — the LLM recommends an
-// action, this decides whether it's actually permitted (CLAUDE.md #14).
+// action, this decides whether it's actually permitted (CLAUDE.md §4.6).
 
 export type PolicyDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 
@@ -15,16 +15,20 @@ export interface PolicyContext {
 
 // Tools that mutate external, customer-visible (or otherwise consequential
 // and hard-to-undo) state must never run without a human approving the
-// exact proposed content first — no amount threshold, no exceptions. Once
-// every customer-facing send is gated here, a separate amount-based gate on
-// the tool that merely *calculates* the number (e.g. calculate_quote) is
-// redundant: it would just pause the same run twice for the same underlying
-// decision. Checked before the tool executes (see agent-runtime.ts) —
-// approving after the fact can't un-send an email or un-invite a meeting.
+// exact proposed content first — no amount threshold, no exceptions.
+// Checked before the tool executes (see agent-runtime.ts) — approving
+// after the fact can't un-send an email or un-invite a meeting.
 //
-// notify_slack/notify_teams are deliberately NOT here — they're internal
-// notifications to the business's own workspace, not customer-visible or
-// consequential the way an email send or a real calendar invite is.
+// notify_channel is deliberately NOT here: an internal Slack/Teams message
+// to the business's own workspace is a different consequence class from a
+// customer-visible email or a real calendar invite. That distinction is
+// exactly why notify_channel and send_email stayed separate tools rather
+// than merging into one "send a message" (CLAUDE.md §4.5).
+//
+// This hardcoded set is the known limitation on the whole policy
+// primitive: a business cannot express its own rules (e.g. "quotes over
+// £10,000 need approval") without a developer editing this file. Making
+// policies data is Tier 1 roadmap work — CLAUDE.md §4.6.
 const REQUIRES_APPROVAL_BEFORE_EXECUTION = new Set([
   "send_email",
   "create_calendar_event",

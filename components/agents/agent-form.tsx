@@ -18,7 +18,7 @@ import type { CategoryType } from "@/lib/agents/schemas";
 import type { ExtractionFieldConfig } from "@/lib/agents/extraction-fields";
 import type { EntityCorrespondenceArchiveConfig } from "@/lib/harness/pipelines/entity-correspondence-archive-pipeline";
 import type { EntityStatusSignalConfig } from "@/lib/harness/pipelines/entity-status-signal-pipeline";
-import { TOOL_REGISTRY } from "@/lib/mcp/tool-registry";
+import { TOOL_GROUPS, TOOL_REGISTRY } from "@/lib/mcp/tool-registry";
 
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -44,7 +44,7 @@ const CATEGORY_TYPE_OPTIONS: {
     value: "quote",
     label: "Lookup & Quote",
     description:
-      "The built-in product/quantity pricing flow: find the customer, find the product, check stock, calculate a total, send a quote. Fixed logic — configure keywords, model, and tools, not the sequence itself.",
+      "The built-in product/quantity pricing flow: find the customer, find the product, price it, send a quote. Fixed logic — configure keywords, model, and tools, not the sequence itself.",
   },
   {
     value: "loop",
@@ -225,8 +225,8 @@ export function AgentForm({
             What to pull out of the message, beyond the customer&rsquo;s email
             (always extracted automatically). Each becomes a fact available when
             writing the reply — optionally, use the extracted value to look up a
-            record in one of your custom entity types (needs the &ldquo;Search
-            custom entity&rdquo; tool granted below).
+            record in one of your record types (needs the &ldquo;Search
+            records&rdquo; tool granted below).
           </p>
           <div className="flex flex-col gap-3 rounded-md border border-border p-3">
             {extractionFields.length === 0 && (
@@ -264,15 +264,15 @@ export function AgentForm({
                   className="flex-1"
                 />
                 <select
-                  name="extractionFieldLookupEntityType"
-                  value={field.lookupEntityType ?? ""}
+                  name="extractionFieldLookupRecordType"
+                  value={field.lookupRecordType ?? ""}
                   onChange={(e) =>
                     setExtractionFields((fields) =>
                       fields.map((f, i) =>
                         i === index
                           ? {
                               ...f,
-                              lookupEntityType: e.target.value || undefined,
+                              lookupRecordType: e.target.value || undefined,
                             }
                           : f,
                       ),
@@ -433,7 +433,7 @@ export function AgentForm({
           defaultValue={agent?.actionIntegrationId ?? ""}
           className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
         >
-          <option value="">Organisation&rsquo;s default Gmail account</option>
+          <option value="">Organisation&rsquo;s default account</option>
           {gmailIntegrations.map((integration) => (
             <option key={integration.id} value={integration.id}>
               {integration.name}
@@ -441,10 +441,10 @@ export function AgentForm({
           ))}
         </select>
         <p className="text-xs text-muted-foreground">
-          Which connected Gmail account this agent&rsquo;s send_email tool sends
-          from. Leave as default unless this business has connected more than
-          one Gmail account and needs different categories to reply from
-          different addresses.
+          Which connected account this agent&rsquo;s send_email tool sends from.
+          Leave as default unless this business has connected more than one
+          Gmail account and needs different categories to reply from different
+          addresses.
         </p>
         {state.fieldErrors?.actionIntegrationId && (
           <p className="text-sm text-destructive">
@@ -455,28 +455,37 @@ export function AgentForm({
 
       <div className="flex flex-col gap-2">
         <Label>Tools</Label>
-        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-          {TOOL_REGISTRY.map((tool) => (
-            <label
-              key={tool.name}
-              className="flex items-start gap-2 text-sm"
-              htmlFor={`tool-${tool.name}`}
-            >
-              <input
-                type="checkbox"
-                id={`tool-${tool.name}`}
-                name="toolNames"
-                value={tool.name}
-                defaultChecked={grantedTools.has(tool.name)}
-                className="mt-0.5 h-4 w-4 rounded border-border"
-              />
-              <span className="flex flex-col">
-                <span className="font-medium">{tool.label}</span>
-                <span className="text-muted-foreground">
-                  {tool.description}
-                </span>
+        <div className="flex flex-col gap-4 rounded-md border border-border p-3">
+          {TOOL_GROUPS.map((group) => (
+            <div key={group} className="flex flex-col gap-2">
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {group}
               </span>
-            </label>
+              {TOOL_REGISTRY.filter((tool) => tool.group === group).map(
+                (tool) => (
+                  <label
+                    key={tool.name}
+                    className="flex items-start gap-2 text-sm"
+                    htmlFor={`tool-${tool.name}`}
+                  >
+                    <input
+                      type="checkbox"
+                      id={`tool-${tool.name}`}
+                      name="toolNames"
+                      value={tool.name}
+                      defaultChecked={grantedTools.has(tool.name)}
+                      className="mt-0.5 h-4 w-4 rounded border-border"
+                    />
+                    <span className="flex flex-col">
+                      <span className="font-medium">{tool.label}</span>
+                      <span className="text-muted-foreground">
+                        {tool.description}
+                      </span>
+                    </span>
+                  </label>
+                ),
+              )}
+            </div>
           ))}
         </div>
         <p className="text-xs text-muted-foreground">

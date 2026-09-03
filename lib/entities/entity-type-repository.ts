@@ -15,7 +15,7 @@ export function findEntityTypeById(organisationId: string, id: string) {
   });
 }
 
-// Used by the search_custom_entity MCP tool to resolve a name (what a
+// Used by the record tools to resolve a type name (what a
 // pipeline's extractionFields.lookupEntityType stores) into the real row —
 // name, not id, because that's what's human-readable in agent config.
 export function findEntityTypeByName(organisationId: string, name: string) {

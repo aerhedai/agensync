@@ -87,7 +87,7 @@ export async function findRecordByFieldValue(
 // being true (CLAUDE.md's "don't add infrastructure before there's a
 // demonstrated need" — this is the same reasoning that's kept a vector
 // database and full-text search off this project so far). Capped to 5,
-// matching find_customer/find_product's own "first match wins" style —
+// matching the built-in record lookups' own "first match wins" style —
 // this feeds an LLM prompt, not a UI results page.
 export async function searchRecords(
   organisationId: string,

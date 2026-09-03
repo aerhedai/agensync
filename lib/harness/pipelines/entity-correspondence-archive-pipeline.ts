@@ -16,7 +16,7 @@ import type { Pipeline } from "@/lib/harness/types";
 // schema, not a hand-copied approximation of it.
 export const pipelineConfigSchema = z.object({
   // Which CustomEntityType a reference token identifies a record in.
-  entityType: z.string().min(1),
+  recordType: z.string().min(1),
   keyField: z.string().min(1),
   // A regex (as a string) with exactly one capture group — the matched
   // group is looked up against keyField. e.g. "\\[Job #([A-Za-z0-9-]+)\\]"
@@ -57,7 +57,7 @@ export const runEntityCorrespondenceArchivePipeline: Pipeline = async (
   if (!configResult.success) {
     return failPipeline(
       context,
-      "This agent's pipelineConfig is missing or invalid — set entityType, keyField, subjectPattern, provider, rootFolderField, correspondenceSubfolder, and correspondenceFilename.",
+      "This agent's pipelineConfig is missing or invalid — set recordType, keyField, subjectPattern, provider, rootFolderField, correspondenceSubfolder, and correspondenceFilename.",
     );
   }
   const config = configResult.data;
@@ -81,15 +81,15 @@ export const runEntityCorrespondenceArchivePipeline: Pipeline = async (
     );
   }
 
-  const found = await callTool(context, "find_custom_entity_record", {
-    entityType: config.entityType,
+  const found = await callTool(context, "find_record", {
+    recordType: config.recordType,
     field: config.keyField,
     value: keyValue,
   });
   if (found.isError || !found.structuredContent?.found) {
     return failPipeline(
       context,
-      `No ${config.entityType} record found for "${keyValue}".`,
+      `No ${config.recordType} record found for "${keyValue}".`,
     );
   }
   const record = found.structuredContent.record as {
@@ -103,7 +103,7 @@ export const runEntityCorrespondenceArchivePipeline: Pipeline = async (
       ? rootFolderValue
       : keyValue;
 
-  const bodySave = await callTool(context, "save_storage_file", {
+  const bodySave = await callTool(context, "save_file", {
     provider: config.provider,
     siteName: config.siteName,
     path: [root, config.correspondenceSubfolder],
@@ -120,7 +120,7 @@ export const runEntityCorrespondenceArchivePipeline: Pipeline = async (
     ? await context.getAttachments()
     : [];
   for (const attachment of attachments) {
-    const attachmentSave = await callTool(context, "save_storage_file", {
+    const attachmentSave = await callTool(context, "save_file", {
       provider: config.provider,
       siteName: config.siteName,
       path: [root, config.correspondenceSubfolder],

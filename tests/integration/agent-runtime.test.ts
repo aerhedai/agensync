@@ -44,7 +44,7 @@ describe("agent runtime", () => {
         name: "Runtime Test Org",
       },
     });
-    // Real per-org catalog row the calculate_quote tool call below resolves
+    // Real per-org catalog row the find_record tool call below resolves
     // against — replaces the old shared lib/mcp/mock-data.ts arrays.
     await prisma.product.create({
       data: {
@@ -75,13 +75,10 @@ describe("agent runtime", () => {
       },
     });
     await prisma.agentTool.createMany({
-      data: [
-        "find_customer",
-        "find_product",
-        "check_inventory",
-        "calculate_quote",
-        "send_email",
-      ].map((toolName) => ({ agentId: agent.id, toolName })),
+      data: ["find_record", "search_records", "send_email"].map((toolName) => ({
+        agentId: agent.id,
+        toolName,
+      })),
     });
 
     restrictedAgent = await prisma.agent.create({
@@ -146,8 +143,12 @@ describe("agent runtime", () => {
         toolCalls: [
           {
             id: "call_0",
-            name: "calculate_quote",
-            arguments: { productId: "runtime-prod-1", quantity: 500 },
+            name: "find_record",
+            arguments: {
+              recordType: "Product",
+              field: "sku",
+              value: "TEST-WIDGET-A",
+            },
           },
         ],
       },
@@ -183,9 +184,9 @@ describe("agent runtime", () => {
 
     const toolStep = run.steps.find((s) => s.stepType === "TOOL_CALL");
     expect(toolStep?.toolCall).toMatchObject({
-      toolName: "calculate_quote",
+      toolName: "find_record",
       status: "SUCCESS",
-      output: { total: 7500 },
+      output: { found: true },
     });
   });
 
@@ -206,8 +207,12 @@ describe("agent runtime", () => {
         toolCalls: [
           {
             id: "call_0",
-            name: "calculate_quote",
-            arguments: { productId: "runtime-prod-1", quantity: 500 },
+            name: "find_record",
+            arguments: {
+              recordType: "Product",
+              field: "sku",
+              value: "TEST-WIDGET-A",
+            },
           },
         ],
       },
@@ -252,7 +257,7 @@ describe("agent runtime", () => {
     const toolCalls = await prisma.toolCall.findMany({
       where: { agentRunId: result.runId },
     });
-    expect(toolCalls.map((t) => t.toolName)).toEqual(["calculate_quote"]);
+    expect(toolCalls.map((t) => t.toolName)).toEqual(["find_record"]);
 
     const approval = await prisma.approval.findFirst({
       where: { agentRunId: result.runId },
@@ -272,8 +277,12 @@ describe("agent runtime", () => {
         toolCalls: [
           {
             id: "call_0",
-            name: "calculate_quote",
-            arguments: { productId: "runtime-prod-1", quantity: 500 },
+            name: "find_record",
+            arguments: {
+              recordType: "Product",
+              field: "sku",
+              value: "TEST-WIDGET-A",
+            },
           },
         ],
       },
@@ -342,8 +351,12 @@ describe("agent runtime", () => {
         toolCalls: [
           {
             id: "call_0",
-            name: "calculate_quote",
-            arguments: { productId: "runtime-prod-1", quantity: 500 },
+            name: "find_record",
+            arguments: {
+              recordType: "Product",
+              field: "sku",
+              value: "TEST-WIDGET-A",
+            },
           },
         ],
       },
@@ -375,7 +388,7 @@ describe("agent runtime", () => {
     const toolCalls = await prisma.toolCall.findMany({
       where: { agentRunId: paused.runId },
     });
-    expect(toolCalls.map((t) => t.toolName)).toEqual(["calculate_quote"]);
+    expect(toolCalls.map((t) => t.toolName)).toEqual(["find_record"]);
 
     const approval = await prisma.approval.findFirst({
       where: { agentRunId: paused.runId },
@@ -499,8 +512,12 @@ describe("agent runtime", () => {
         toolCalls: [
           {
             id: "call_0",
-            name: "calculate_quote",
-            arguments: { productId: "runtime-prod-1", quantity: 500 },
+            name: "find_record",
+            arguments: {
+              recordType: "Product",
+              field: "sku",
+              value: "TEST-WIDGET-A",
+            },
           },
         ],
       },
@@ -520,7 +537,7 @@ describe("agent runtime", () => {
     });
     expect(toolCalls).toHaveLength(1);
     expect(toolCalls[0]).toMatchObject({
-      toolName: "calculate_quote",
+      toolName: "find_record",
       status: "FAILED",
     });
     expect(toolCalls[0]?.error).toMatch(/does not have access/i);
@@ -533,8 +550,12 @@ describe("agent runtime", () => {
         toolCalls: [
           {
             id: "call_0",
-            name: "calculate_quote",
-            arguments: { productId: "does-not-exist", quantity: 1 },
+            name: "find_record",
+            arguments: {
+              recordType: "NotARealType",
+              field: "id",
+              value: "x",
+            },
           },
         ],
       },
@@ -550,7 +571,7 @@ describe("agent runtime", () => {
     });
     expect(toolCalls).toHaveLength(1);
     expect(toolCalls[0]).toMatchObject({ status: "FAILED" });
-    expect(toolCalls[0]?.error).toMatch(/no product found/i);
+    expect(toolCalls[0]?.error).toMatch(/no record type named/i);
   });
 
   it("fails the run after exceeding the step limit", async () => {
@@ -559,8 +580,12 @@ describe("agent runtime", () => {
       toolCalls: [
         {
           id: "call_0",
-          name: "check_inventory",
-          arguments: { productId: "runtime-prod-1" },
+          name: "find_record",
+          arguments: {
+            recordType: "Product",
+            field: "sku",
+            value: "TEST-WIDGET-A",
+          },
         },
       ],
     };

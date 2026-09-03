@@ -15,9 +15,8 @@ export interface PipelineContext {
   organisationId: string;
   // Fetched once per run in run-harness-pipeline.ts, not per pipeline
   // step — one extra query per run, used for the compose sign-off
-  // (organisation.name) and available for any other per-org fact a
-  // pipeline needs (e.g. currency, though quote-pipeline currently sources
-  // that from calculate_quote's own result instead — see that file).
+  // (organisation.name) and for any other per-org fact a pipeline needs
+  // (e.g. organisation.currency, which quote-pipeline prices against).
   organisation: Organisation;
   agent: Agent;
   input: string;

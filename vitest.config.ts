@@ -12,5 +12,9 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts"],
+    // Clears organisations stranded by a previously failed run, so a real
+    // failure is never buried under Organisation_pkey collisions in
+    // unrelated files. See tests/global-setup.ts.
+    globalSetup: ["tests/global-setup.ts"],
   },
 });

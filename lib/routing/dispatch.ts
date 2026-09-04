@@ -85,11 +85,19 @@ export async function dispatchInboundMessage(
   // real but narrow.
   const resolvedProvider = provider ?? (await getAIProvider(organisationId));
 
-  // Fast path: a deterministic keyword match skips the LLM classify call
-  // entirely. Only falls through to it on ambiguity (see
-  // deterministic-classify.ts) — the LLM remains the safety net, not the
-  // primary mechanism.
+  // Fastest path: with exactly one active handler there is no routing
+  // decision to make — the classifier would be asked a question with one
+  // possible answer, and paying for an LLM call to hear it back is pure
+  // waste. Deliberately checked before the keyword path, since it holds
+  // regardless of whether any keywords are configured.
   const matchedAgentId =
+    (handlerMembers.length === 1
+      ? (handlerMembers[0]?.agent.id ?? null)
+      : null) ??
+    // Fast path: a deterministic keyword match skips the LLM classify call
+    // entirely. Only falls through to it on ambiguity (see
+    // deterministic-classify.ts) — the LLM remains the safety net, not the
+    // primary mechanism.
     deterministicClassify(
       input,
       handlerMembers.map((m) => ({

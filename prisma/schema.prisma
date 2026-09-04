@@ -125,6 +125,8 @@ model Organisation {
   customers           Customer[]
   customEntityTypes   CustomEntityType[]
   customEntityRecords CustomEntityRecord[]
+  knowledgeDocuments  KnowledgeDocument[]
+  knowledgeChunks     KnowledgeChunk[]
 }
 
 // Real, org-scoped catalog data, replacing the old lib/mcp/mock-data.ts
@@ -549,5 +551,62 @@ model Integration {
   actionForAgents    Agent[]
 
   @@unique([organisationId, provider, name])
+  @@index([organisationId])
+}
+
+// A business's own unstructured knowledge — policies, SOPs, price lists,
+// FAQs. Deliberately separate from CustomEntityType/Record, which is
+// structured data: an invoice is looked up exactly by number and summed,
+// a refund policy is retrieved by meaning. Vector search would be wrong
+// for the former and is the whole point of the latter
+// (docs/agent-step-engine-design.md, catalog reform).
+//
+// Before this existed, the only place for "how this business does things"
+// was Agent.instructions, which is concatenated into every single LLM
+// call — so guidance got linearly more expensive as it grew. Retrieval
+// carries only the chunks a given run actually needs.
+model KnowledgeDocument {
+  id             String   @id @default(cuid())
+  organisationId String
+  title          String
+  // Where the text came from — "pasted" or "upload". A plain string, not
+  // an enum, same reasoning as Integration.provider: a new source
+  // shouldn't need a migration.
+  source         String   @default("pasted")
+  // The whole original text, kept alongside its chunks so a document can
+  // be re-chunked later (a better splitter, a different chunk size)
+  // without asking the business to paste it again.
+  content        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation     @relation(fields: [organisationId], references: [id])
+  chunks       KnowledgeChunk[]
+
+  @@index([organisationId])
+}
+
+model KnowledgeChunk {
+  id             String @id @default(cuid())
+  documentId     String
+  organisationId String
+  // Order within the source document, so retrieved chunks can be shown
+  // and read back in their original sequence.
+  position       Int
+  content        String
+  // pgvector, 768 dimensions — nomic-embed-text's output size. Typed
+  // Unsupported because Prisma has no native vector type: the column is
+  // created and indexed by migration, and every read/write of it goes
+  // through raw SQL in lib/knowledge/. Nullable so a chunk can exist
+  // before its embedding is generated.
+  embedding      Unsupported("vector(768)")?
+  createdAt      DateTime                   @default(now())
+
+  // Cascade: a chunk has no meaning without its document, and unlike a
+  // run's audit trail there's nothing here worth preserving separately.
+  document     KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organisation Organisation      @relation(fields: [organisationId], references: [id])
+
+  @@index([documentId])
   @@index([organisationId])
 }

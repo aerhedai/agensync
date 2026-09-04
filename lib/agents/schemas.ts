@@ -22,6 +22,11 @@ const categoryTypeSchema = z.enum([
   "quote",
   "entity_status_signal",
   "entity_correspondence_archive",
+  // "steps": the generic one — this agent runs its own configured step
+  // sequence rather than a shape fixed in code
+  // (docs/agent-step-engine-design.md). Every option above it is a fixed
+  // shape; this is the one that isn't.
+  "steps",
 ]);
 export type CategoryType = z.infer<typeof categoryTypeSchema>;
 

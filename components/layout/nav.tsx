@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/workflows", label: "Workflows" },
   { href: "/runs", label: "Runs" },
   { href: "/catalog", label: "Catalog" },
+  { href: "/knowledge", label: "Knowledge" },
   { href: "/approvals", label: "Approvals" },
   { href: "/settings", label: "Settings" },
 ];

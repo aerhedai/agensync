@@ -40,6 +40,17 @@ export default async function EditAgentPage({
       ? entityCorrespondenceArchiveConfigSchema.safeParse(agent.pipelineConfig)
           .data
       : undefined;
+  // Passed through raw rather than schema-parsed: the step editor
+  // round-trips JSON, and pre-filling with exactly what's stored — even if
+  // it no longer validates — is what lets someone repair a broken
+  // programme instead of losing it.
+  const initialStepsConfig =
+    agent.pipelineKey === "steps" &&
+    agent.pipelineConfig &&
+    typeof agent.pipelineConfig === "object" &&
+    !Array.isArray(agent.pipelineConfig)
+      ? (agent.pipelineConfig as Record<string, unknown>)
+      : undefined;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
@@ -66,6 +77,7 @@ export default async function EditAgentPage({
         initialEntityCorrespondenceArchiveConfig={
           initialEntityCorrespondenceArchiveConfig
         }
+        initialStepsConfig={initialStepsConfig}
       />
     </div>
   );

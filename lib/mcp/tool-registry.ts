@@ -41,6 +41,13 @@ export const TOOL_REGISTRY = [
       "Update fields on an existing record, leaving its other fields untouched.",
   },
   {
+    name: "search_knowledge",
+    group: "Business data",
+    label: "Search knowledge",
+    description:
+      "Look something up in this business's own documented knowledge — policies, procedures, price lists, FAQs.",
+  },
+  {
     name: "send_email",
     group: "Communication",
     label: "Send email",

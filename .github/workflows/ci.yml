@@ -44,7 +44,9 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        # Must match docker-compose.yml: the knowledge base migration does
+        # CREATE EXTENSION vector, which the stock postgres image can't.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: aperator
           POSTGRES_PASSWORD: aperator

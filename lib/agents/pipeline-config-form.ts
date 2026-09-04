@@ -1,6 +1,7 @@
 import type { CategoryType } from "@/lib/agents/schemas";
 import { pipelineConfigSchema as entityCorrespondenceArchiveConfigSchema } from "@/lib/harness/pipelines/entity-correspondence-archive-pipeline";
 import { pipelineConfigSchema as entityStatusSignalConfigSchema } from "@/lib/harness/pipelines/entity-status-signal-pipeline";
+import { pipelineConfigSchema as stepsConfigSchema } from "@/lib/harness/pipelines/steps-pipeline";
 
 // Pure FormData-parsing helpers for the two structured pipeline configs
 // (components/agents/entity-status-signal-fields.tsx and
@@ -124,6 +125,9 @@ export function parsePipelineConfigForm(
   if (categoryType === "entity_status_signal") {
     return parseEntityStatusSignalConfig(formData);
   }
+  if (categoryType === "steps") {
+    return parseStepsConfig(formData);
+  }
   if (categoryType === "entity_correspondence_archive") {
     return parseEntityCorrespondenceArchiveConfig(formData);
   }
@@ -149,6 +153,13 @@ export function validatePipelineConfig(
     }
     return { config: result.data };
   }
+  if (categoryType === "steps") {
+    const result = stepsConfigSchema.safeParse(pipelineConfig);
+    if (!result.success) {
+      return { error: result.error.issues.map((i) => i.message).join("; ") };
+    }
+    return { config: result.data };
+  }
   if (categoryType === "entity_correspondence_archive") {
     const result =
       entityCorrespondenceArchiveConfigSchema.safeParse(pipelineConfig);
@@ -158,4 +169,37 @@ export function validatePipelineConfig(
     return { config: result.data };
   }
   return { config: {} };
+}
+
+/**
+ * The step programme arrives as JSON text from the agent form's advanced
+ * step editor.
+ *
+ * Deliberately JSON rather than the parallel-array form parsing every
+ * other config here uses: steps nest (a `branch` holds arms of steps, an
+ * `act`'s args hold objects and arrays), and flattening that into indexed
+ * form inputs would either lose structure or need an encoding scheme more
+ * error-prone than the JSON it was avoiding.
+ *
+ * Returns the raw parsed value without validating it — validatePipelineConfig
+ * does that against the real runtime schema, so the form can't accept a
+ * programme the step runner would reject. Unparseable text becomes an empty
+ * object, which fails that validation with a clear message rather than
+ * throwing here.
+ */
+function parseStepsConfig(formData: FormData): Record<string, unknown> {
+  const raw = formData.get("stepsJson");
+  if (typeof raw !== "string" || raw.trim() === "") return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    // A bare array is the shape people reach for first; accept it as the
+    // steps list rather than rejecting on a technicality.
+    if (Array.isArray(parsed)) return { steps: parsed };
+    return {};
+  } catch {
+    return {};
+  }
 }

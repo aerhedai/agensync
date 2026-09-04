@@ -62,17 +62,26 @@ type AgentFormValues = Pick<
   toolNames?: string[];
 };
 
-// Anything that isn't the generic step pipeline and isn't free-form LOOP is
-// one of the original fixed shapes. Editing one is still allowed — it just
-// can't be re-pointed at a different fixed shape from here, because those
-// are no longer offered.
+// Anything that isn't the generic step pipeline is one of the original
+// fixed shapes: a HARNESS pipeline with a code-defined pipelineKey, or a
+// LOOP agent — every workflow's classifier, and the only genuinely
+// free-form execution mode. Editing one is still allowed — it just can't
+// be re-pointed at a different fixed shape from here, because those are no
+// longer offered.
+//
+// LOOP was excluded from this check until this comment, which was a real
+// production bug: a LOOP agent has `pipelineKey: null`, so it fell through
+// every branch below and was treated as a plain steps agent with no steps
+// configured. Saving one — the classifier included — would have silently
+// flipped it from LOOP/null to HARNESS/"steps" with an empty programme,
+// breaking the manual "Run agent" button (LOOP and HARNESS run through
+// different code paths, see lib/runtime/run-agent-by-mode.ts) while leaving
+// routing looking unaffected, since dispatch.ts's classifyIntent only ever
+// reads instructions/model and never checks executionMode.
 function isLegacyPipeline(agent?: AgentFormValues): boolean {
   if (!agent) return false;
-  return (
-    agent.executionMode === "HARNESS" &&
-    agent.pipelineKey !== null &&
-    agent.pipelineKey !== "steps"
-  );
+  if (agent.executionMode === "LOOP") return true;
+  return agent.pipelineKey !== null && agent.pipelineKey !== "steps";
 }
 
 export function AgentForm({
@@ -104,6 +113,26 @@ export function AgentForm({
   );
 
   const legacy = isLegacyPipeline(agent);
+
+  // Every field error this form knows to render inline, by the FormData
+  // name the schema reports it under.
+  const KNOWN_FIELD_ERRORS = [
+    "name",
+    "description",
+    "instructions",
+    "model",
+    "pipelineConfig",
+  ];
+  // Any error under a key not listed above. A real bug produced exactly
+  // this shape once already: categoryType failed validation, nothing here
+  // rendered a categoryType error, and the form just sat there on submit
+  // with no visible sign anything was wrong. This is not a fix for that bug
+  // — the fix is resolving categoryType correctly before it ever reaches
+  // validation — it's insurance against the next unrendered field error
+  // being just as silent.
+  const unhandledFieldErrors = Object.entries(state.fieldErrors ?? {}).filter(
+    ([key]) => !KNOWN_FIELD_ERRORS.includes(key),
+  );
 
   const [stepsJson, setStepsJson] = useState(() =>
     initialStepsConfig && Object.keys(initialStepsConfig).length > 0
@@ -139,6 +168,18 @@ export function AgentForm({
   return (
     <form action={formAction} className="flex flex-col gap-6">
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
+      {unhandledFieldErrors.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <p className="font-medium">This couldn&rsquo;t be saved:</p>
+          <ul className="list-inside list-disc">
+            {unhandledFieldErrors.map(([key, messages]) => (
+              <li key={key}>
+                {key}: {messages?.[0]}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="name">Name</Label>
@@ -194,24 +235,51 @@ export function AgentForm({
 
       {legacy ? (
         <div className="flex flex-col gap-2 rounded-md border border-border bg-secondary/40 p-3">
-          {/* categoryType now defaults to "steps" server-side. Without
-              this, saving an edit to a legacy agent would silently
-              re-point it at the step pipeline with no steps configured —
-              breaking a working agent through an unrelated edit. */}
+          {/* categoryType defaults to "steps" server-side when this field is
+              absent, so it must be sent explicitly here — otherwise saving
+              an edit to a legacy agent would silently re-point it at the
+              step pipeline with no steps configured, breaking a working
+              agent through an unrelated edit. A LOOP agent has
+              pipelineKey: null, which is indistinguishable from "not set"
+              once it's the empty string this input would otherwise submit
+              — "loop" has to be spelled out explicitly rather than reusing
+              pipelineKey, or LOOP agents would hit exactly that bug. */}
           <input
             type="hidden"
             name="categoryType"
-            value={agent?.pipelineKey ?? ""}
+            value={
+              agent?.executionMode === "LOOP"
+                ? "loop"
+                : (agent?.pipelineKey ?? "")
+            }
           />
           <p className="text-sm font-medium">
-            This agent runs the built-in &ldquo;{agent?.pipelineKey}&rdquo;
-            process
+            {agent?.executionMode === "LOOP" ? (
+              <>This agent runs freely (LOOP mode)</>
+            ) : (
+              <>
+                This agent runs the built-in &ldquo;{agent?.pipelineKey}&rdquo;
+                process
+              </>
+            )}
           </p>
           <p className="text-xs text-muted-foreground">
-            It was created before agents became step sequences, and keeps
-            working exactly as it did. Its steps aren&rsquo;t editable here — to
-            move it onto steps, create a new agent from a template and retire
-            this one.
+            {agent?.executionMode === "LOOP" ? (
+              <>
+                It decides which of its granted tools to call, turn by turn,
+                rather than following a fixed step sequence — this is how every
+                workflow&rsquo;s classifier runs. It isn&rsquo;t editable as
+                steps here; its name, description, instructions, model, and tool
+                grants above still apply and can be changed freely.
+              </>
+            ) : (
+              <>
+                It was created before agents became step sequences, and keeps
+                working exactly as it did. Its steps aren&rsquo;t editable here
+                — to move it onto steps, create a new agent from a template and
+                retire this one.
+              </>
+            )}
           </p>
         </div>
       ) : (

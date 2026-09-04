@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import * as agentService from "@/lib/agents/agent-service";
 import {
   parsePipelineConfigForm,
+  resolveCategoryType,
   validatePipelineConfig,
 } from "@/lib/agents/pipeline-config-form";
 import { agentInputSchema, type CategoryType } from "@/lib/agents/schemas";
@@ -48,7 +49,7 @@ function parseAgentForm(formData: FormData) {
     };
   });
 
-  const categoryType = formData.get("categoryType");
+  const categoryType = resolveCategoryType(formData);
 
   return agentInputSchema.safeParse({
     name: formData.get("name"),
@@ -76,7 +77,7 @@ export async function createAgentAction(
   }
 
   const validated = validatePipelineConfig(
-    formData.get("categoryType") as CategoryType,
+    resolveCategoryType(formData) as CategoryType,
     parsed.data.pipelineConfig,
   );
   if ("error" in validated) {
@@ -102,7 +103,7 @@ export async function updateAgentAction(
   }
 
   const validated = validatePipelineConfig(
-    formData.get("categoryType") as CategoryType,
+    resolveCategoryType(formData) as CategoryType,
     parsed.data.pipelineConfig,
   );
   if ("error" in validated) {

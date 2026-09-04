@@ -4,6 +4,46 @@ Deliberate V1 simplifications that are fine for local development but must be
 addressed before any real deployment. Each entry names the gap, why it was
 accepted for now, and what closing it looks like.
 
+## Catalog collapsed into Record Types (closed)
+
+`Product` and `Customer` were real Postgres tables with real columns, so
+every business in every industry carried a retail-shaped schema it could not
+change. They are ordinary Record Types now
+(`20260904020000_collapse_catalog_into_record_types`), seeded from
+`lib/records/starter-record-types.ts` by the template that needs them.
+
+Two things worth knowing about how it was done:
+
+The migration **copies every row into `CustomEntityRecord` before dropping
+the tables**, so it is correct whether or not they held data. Both were
+verified empty in Production beforehand, but the migration does not depend
+on that — a migration whose safety rests on someone having checked a row
+count is one that will eventually run against a database nobody checked.
+
+Organisations that existed at the collapse got their field definitions from
+the migration's hardcoded JSON; ones created since get them from the code.
+`tests/integration/starter-record-types.test.ts` parses the migration file
+and compares the two, because nothing else would catch that drift.
+
+**Behaviour change to be aware of:** agents can now write to Product and
+Customer, which `BuiltInRecordTypeError` previously refused outright.
+
+## Typed field coercion on the agent write path (closed)
+
+Found while doing the collapse, and it predated it. `create_record` and
+`update_record` went straight to the repository, so only the Catalog form
+ever ran `buildRecordDataSchema`. A model supplying `"12.5"` for a currency
+field stored the **string** `"12.5"` — reads looked correct, and arithmetic
+in a later `compute` step silently didn't. Now coerced in
+`entity-record-service.ts` for both paths.
+
+Deliberately coerces **types only, not required-ness**, on the agent path.
+Every field defined before typed fields existed defaults to `required: true`
+without anyone having chosen that, so enforcing it here would start failing
+agents already in production that write partial records. The Catalog form
+still enforces required on the human path. Tightening the agent path is a
+separate decision, not a side effect of this one.
+
 ## Gmail OAuth tokens encrypted at rest (Phase B — closed)
 
 `Integration.accessToken` / `Integration.refreshToken` were stored as plain

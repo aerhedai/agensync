@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { createMcpServer } from "@/lib/mcp/server";
+import { createRecord } from "@/tests/helpers/records";
 
 // Real MCP protocol round trip (list + call, real Zod validation, real
 // handlers) over an in-memory transport pair — no network, deterministic,
@@ -25,23 +26,16 @@ describe("MCP tool server", () => {
         currency: "GBP",
       },
     });
-    await prisma.product.create({
-      data: {
-        id: "prod-1",
-        organisationId,
-        sku: "WIDGET-A",
-        name: "Product A",
-        unitPrice: 15,
-        stockQuantity: 700,
-      },
+    await createRecord(organisationId, "Product", {
+      sku: "WIDGET-A",
+      name: "Product A",
+      unitPrice: 15,
+      stockQuantity: 700,
     });
-    await prisma.customer.create({
-      data: {
-        organisationId,
-        name: "Customer ABC",
-        email: "buyer@customer-abc.test",
-        company: "Customer ABC Ltd",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Customer ABC",
+      email: "buyer@customer-abc.test",
+      company: "Customer ABC Ltd",
     });
     const propertyType = await prisma.customEntityType.create({
       data: {
@@ -75,8 +69,6 @@ describe("MCP tool server", () => {
   afterEach(async () => {
     vi.unstubAllGlobals();
     await client.close();
-    await prisma.product.deleteMany({ where: { organisationId } });
-    await prisma.customer.deleteMany({ where: { organisationId } });
     await prisma.customEntityRecord.deleteMany({ where: { organisationId } });
     await prisma.customEntityType.deleteMany({ where: { organisationId } });
     await prisma.integration.deleteMany({ where: { organisationId } });
@@ -183,17 +175,57 @@ describe("MCP tool server", () => {
     expect(text).toContain("Product");
   });
 
-  it("refuses to write to a built-in record type rather than silently coercing", async () => {
-    // Product.unitPrice is a real Decimal column; an untyped data bag from
-    // a model cannot safely populate it. Refused loudly until Product and
-    // Customer become ordinary record types (CLAUDE.md §7).
+  it("lets an agent create a Product, which the built-in table refused", async () => {
+    // This exact call used to be refused: Product was a real table whose
+    // unitPrice was a Decimal column, and an untyped bag from a model could
+    // not safely populate it. Product is an ordinary record type now, so the
+    // write goes through — and the currency field coerces the model's string
+    // "12.5" into a real number rather than storing the string.
     const result = await client.callTool({
       name: "create_record",
-      arguments: { recordType: "Product", data: { sku: "X", unitPrice: "12" } },
+      arguments: {
+        recordType: "Product",
+        data: {
+          sku: "X-1",
+          name: "Written by an agent",
+          unitPrice: "12.5",
+          stockQuantity: "3",
+        },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+
+    const created = await prisma.customEntityRecord.findFirstOrThrow({
+      where: { organisationId, data: { path: ["sku"], equals: "X-1" } },
+    });
+    const data = created.data as Record<string, unknown>;
+    // Regression test for a real hole this change exposed: create_record
+    // went straight to the repository, so a model supplying "12.5" for a
+    // currency field stored the *string*. Reads looked fine; arithmetic in a
+    // later compute step silently didn't. Only the Catalog form coerced.
+    expect(data.unitPrice).toBe(12.5);
+    expect(data.stockQuantity).toBe(3);
+  });
+
+  it("rejects a value that isn't valid for its field type, naming the field", async () => {
+    const result = await client.callTool({
+      name: "create_record",
+      arguments: {
+        recordType: "Product",
+        data: {
+          sku: "X-2",
+          name: "Not a price",
+          unitPrice: "not a number",
+          stockQuantity: 1,
+        },
+      },
     });
 
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain("built-in");
+    // Naming the field is the point — "invalid input" gives a model nothing
+    // to correct on a retry.
+    expect(JSON.stringify(result.content)).toContain("unitPrice");
   });
 
   it("reports invalid input as a tool error before the handler runs", async () => {

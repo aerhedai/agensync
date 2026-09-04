@@ -59,7 +59,7 @@ export async function createRecordAction(
     // cast the repository layer already uses applies here too.
     parsed.data as Prisma.InputJsonValue,
   );
-  redirect(`/catalog/entities/${entityTypeId}`);
+  redirect(`/catalog/${entityTypeId}`);
 }
 
 export async function deleteRecordAction(
@@ -74,7 +74,7 @@ export async function deleteRecordAction(
   if (!deleted) {
     notFound();
   }
-  revalidatePath(`/catalog/entities/${entityTypeId}`);
+  revalidatePath(`/catalog/${entityTypeId}`);
 }
 
 export async function updateRecordAction(
@@ -113,5 +113,5 @@ export async function updateRecordAction(
   if (!updated) {
     notFound();
   }
-  redirect(`/catalog/entities/${entityTypeId}`);
+  redirect(`/catalog/${entityTypeId}`);
 }

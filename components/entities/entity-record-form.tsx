@@ -7,7 +7,7 @@ import {
   createRecordAction,
   updateRecordAction,
   type RecordFormState,
-} from "@/app/(app)/catalog/entities/[id]/actions";
+} from "@/app/(app)/catalog/[id]/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

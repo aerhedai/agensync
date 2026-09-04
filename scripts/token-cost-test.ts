@@ -20,8 +20,8 @@ config({ path: ".env.local" });
 const { prisma } = await import("@/lib/db/prisma");
 const { getAIProvider } = await import("@/lib/ai/organisation-ai-provider");
 const { dispatchInboundMessage } = await import("@/lib/routing/dispatch");
-const { createProduct } = await import("@/lib/products/product-repository");
-const { createCustomer } = await import("@/lib/customers/customer-repository");
+const { seedStarterRecordTypes } =
+  await import("@/lib/records/starter-record-type-service");
 import type {
   AIProvider,
   GenerateRequest,
@@ -60,37 +60,69 @@ interface TestEmail {
   input: string;
 }
 
+/**
+ * Find-or-create one record by a matching field, so re-running this script
+ * doesn't pile up duplicate rows. Product and Customer are ordinary record
+ * types since the catalog collapse, so there's no unique constraint to
+ * upsert against the way the old tables had on (organisationId, sku).
+ */
+async function upsertRecord(
+  typeName: string,
+  match: Record<string, string>,
+  data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const type = await prisma.customEntityType.findFirstOrThrow({
+    where: { organisationId: TEST_ORG_ID, name: typeName },
+  });
+  const [field, value] = Object.entries(match)[0]!;
+  const existing = await prisma.customEntityRecord.findFirst({
+    where: {
+      organisationId: TEST_ORG_ID,
+      entityTypeId: type.id,
+      data: { path: [field], equals: value },
+    },
+  });
+  if (existing) return existing.data as Record<string, unknown>;
+  const created = await prisma.customEntityRecord.create({
+    data: {
+      organisationId: TEST_ORG_ID,
+      entityTypeId: type.id,
+      data: data as object,
+    },
+  });
+  return created.data as Record<string, unknown>;
+}
+
 async function main() {
   console.log(
     `Seeding catalog into ${TEST_ORG_ID} and switching its agents to ${TEST_MODEL}...`,
   );
 
-  const existingProduct = await prisma.product.findFirst({
-    where: { organisationId: TEST_ORG_ID, sku: "WIDGET-500" },
-  });
-  const product = existingProduct
-    ? { name: existingProduct.name }
-    : await createProduct(TEST_ORG_ID, {
-        sku: "WIDGET-500",
-        name: "Widget 500",
-        unitPrice: 12.5,
-        stockQuantity: 5000,
-      });
+  await seedStarterRecordTypes(TEST_ORG_ID);
+  const product = await upsertRecord(
+    "Product",
+    { sku: "WIDGET-500" },
+    {
+      sku: "WIDGET-500",
+      name: "Widget 500",
+      unitPrice: 12.5,
+      stockQuantity: 5000,
+    },
+  );
   // Deliberately NOT "jordan.price@..." — deterministicClassify does a raw
   // substring match, and an email containing "price" falsely matched the
   // Quote Agent's keyword list on every single test email regardless of
   // actual content, discovered by this test run. Real finding, not fixed
   // here — see the wrap-up note this script prints for what it means.
-  const existingCustomer = await prisma.customer.findFirst({
-    where: { organisationId: TEST_ORG_ID, email: "j.reyes@example.com" },
-  });
-  const customer = existingCustomer
-    ? { email: existingCustomer.email }
-    : await createCustomer(TEST_ORG_ID, {
-        name: "Jordan Reyes",
-        email: "j.reyes@example.com",
-        company: "Northfield Retail",
-      });
+  const customer = await upsertRecord(
+    "Customer",
+    { email: "j.reyes@example.com" },
+    {
+      name: "Jordan Reyes",
+      email: "j.reyes@example.com",
+      company: "Northfield Retail",
+    },
+  );
 
   const priorModels = await prisma.agent.findMany({
     where: { organisationId: TEST_ORG_ID },

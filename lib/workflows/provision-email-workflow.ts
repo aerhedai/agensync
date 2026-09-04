@@ -6,19 +6,7 @@ import {
   DEFAULT_GENERAL_EXTRACTION_FIELDS,
 } from "@/lib/agents/default-agent-config";
 import type { Workflow } from "@/lib/generated/prisma/client";
-
-export interface ProvisionEmailWorkflowProduct {
-  sku: string;
-  name: string;
-  unitPrice: number;
-  stockQuantity: number;
-}
-
-export interface ProvisionEmailWorkflowCustomer {
-  name: string;
-  email: string;
-  company: string;
-}
+import { seedStarterRecordTypes } from "@/lib/records/starter-record-type-service";
 
 export interface ProvisionEmailWorkflowConfig {
   organisationId: string;
@@ -29,8 +17,6 @@ export interface ProvisionEmailWorkflowConfig {
   // specific matched (see lib/routing/deterministic-classify.ts).
   quoteKeywords: string[];
   complaintsKeywords: string[];
-  products: ProvisionEmailWorkflowProduct[];
-  customers: ProvisionEmailWorkflowCustomer[];
 }
 
 /**
@@ -164,29 +150,12 @@ export async function provisionEmailWorkflow(
     await agentToolRepository.setToolsForAgent(agent.id, agent.toolNames);
   }
 
-  for (const product of config.products) {
-    await prisma.product.upsert({
-      where: {
-        organisationId_sku: { organisationId, sku: product.sku },
-      },
-      update: {
-        name: product.name,
-        unitPrice: product.unitPrice,
-        stockQuantity: product.stockQuantity,
-      },
-      create: { ...product, organisationId },
-    });
-  }
-
-  for (const customer of config.customers) {
-    await prisma.customer.upsert({
-      where: {
-        organisationId_email: { organisationId, email: customer.email },
-      },
-      update: { name: customer.name, company: customer.company },
-      create: { ...customer, organisationId },
-    });
-  }
+  // The Quote agent looks records up by type name, so this template has to
+  // bring its record types with it — a template specifies Record Types the
+  // same way it specifies agents and policies (CLAUDE.md §6). They arrive as
+  // ordinary types the business can rename, extend or delete, which is the
+  // whole difference from the Product/Customer tables these replaced.
+  await seedStarterRecordTypes(organisationId);
 
   const workflow = await prisma.workflow.upsert({
     where: { id: `${organisationId}-workflow-email` },

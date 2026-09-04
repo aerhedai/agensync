@@ -11,6 +11,10 @@ import { failPipeline } from "@/lib/harness/pipeline-failure";
 import { callTool } from "@/lib/harness/pipeline-helpers";
 import { containsForbiddenKeyword } from "@/lib/harness/pipeline-guards";
 import { proposeAction } from "@/lib/harness/propose-action";
+import {
+  EmbeddingUnavailableError,
+  search as searchKnowledge,
+} from "@/lib/knowledge/knowledge-service";
 import { runCompute } from "@/lib/harness/steps/compute";
 import { evaluateCondition } from "@/lib/harness/steps/conditions";
 import type { ArgValue, LeafStep, Step } from "@/lib/harness/steps/schema";
@@ -211,6 +215,44 @@ async function runLeafStep(
         };
       }
       store[step.as] = computed.value;
+      return { done: false };
+    }
+
+    case "retrieve": {
+      const query = String(resolveOperand(step.query, store) ?? "").trim();
+      if (query === "") {
+        return {
+          done: true,
+          result: await failPipeline(
+            context,
+            "The retrieve step resolved to an empty search query.",
+          ),
+        };
+      }
+
+      try {
+        const passages = await searchKnowledge(context.organisationId, query, {
+          limit: step.limit,
+        });
+        // Stored as prose rather than the raw result objects: this value
+        // is destined for a compose step's facts, and document/content
+        // pairs read far better there than JSON would.
+        store[step.as] = passages
+          .map((p) => `From "${p.documentTitle}": ${p.content}`)
+          .join("\n\n");
+      } catch (error) {
+        if (error instanceof EmbeddingUnavailableError) {
+          return {
+            done: true,
+            result: await failPipeline(context, error.message),
+          };
+        }
+        throw error;
+      }
+
+      // Finding nothing is not a failure — a business may simply have no
+      // document covering this. The programme continues with an empty
+      // value, and a branch can test it if the agent needs to care.
       return { done: false };
     }
 

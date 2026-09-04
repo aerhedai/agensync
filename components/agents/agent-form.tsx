@@ -3,23 +3,40 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 
-import type { AgentFormState } from "@/app/(app)/agents/actions";
+import {
+  DEFAULT_STEPS_JSON,
+  StepProgrammeFields,
+} from "@/components/agents/step-programme-fields";
+import {
+  TemplatePicker,
+  type TemplateOption,
+} from "@/components/agents/template-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { EntityCorrespondenceArchiveFields } from "@/components/agents/entity-correspondence-archive-fields";
-import { StepProgrammeFields } from "@/components/agents/step-programme-fields";
-import {
-  EntityStatusSignalFields,
-  type EntityTypeOption,
-} from "@/components/agents/entity-status-signal-fields";
+import type { AgentFormState } from "@/app/(app)/agents/actions";
 import type { Agent } from "@/lib/generated/prisma/client";
-import type { CategoryType } from "@/lib/agents/schemas";
-import type { ExtractionFieldConfig } from "@/lib/agents/extraction-fields";
-import type { EntityCorrespondenceArchiveConfig } from "@/lib/harness/pipelines/entity-correspondence-archive-pipeline";
-import type { EntityStatusSignalConfig } from "@/lib/harness/pipelines/entity-status-signal-pipeline";
 import { TOOL_GROUPS, TOOL_REGISTRY } from "@/lib/mcp/tool-registry";
+
+/**
+ * Creating an agent.
+ *
+ * Every field here is generic — a name, what it should do, which tools it
+ * may use, what it must never say. Nothing on this form is specific to
+ * quoting, or complaints, or invoices. The one place anything
+ * business-specific appears is the template picker, which pre-fills the
+ * steps and ticks the tools those steps need (CLAUDE.md §3: a vertical is
+ * a template, never a primitive).
+ *
+ * This replaced a "Category type" radio list of five fixed process shapes,
+ * one of which ("Lookup & Quote") was a hardcoded business process every
+ * unrelated business had to scroll past, and each of which revealed a
+ * different subset of fields. An agent is now a step programme, full stop.
+ *
+ * Agents created before that change still run their original pipeline —
+ * see the notice rendered for them below. They aren't migrated, and
+ * nothing here can turn one into another; they simply keep working.
+ */
 
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -30,62 +47,6 @@ function SubmitButton({ label }: { label: string }) {
   );
 }
 
-const CATEGORY_TYPE_OPTIONS: {
-  value: CategoryType;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "acknowledge_reply",
-    label: "Acknowledge & Reply",
-    description:
-      'Extract whatever facts you define from the message, optionally look up the customer, write an appropriate reply, apply your own guardrail — no code needed. Use this for most new categories (case inquiries, maintenance requests, general questions, complaints, anything that\'s fundamentally "read it and respond").',
-  },
-  {
-    value: "quote",
-    label: "Lookup & Quote",
-    description:
-      "The built-in product/quantity pricing flow: find the customer, find the product, price it, send a quote. Fixed logic — configure keywords, model, and tools, not the sequence itself.",
-  },
-  {
-    value: "loop",
-    label: "Free-form (advanced)",
-    description:
-      "The model decides which tools to call and in what order, turn by turn. More flexible, less predictable — this project's own findings are that tool-call failures happen here, not in the pipeline modes above. Prefer Acknowledge & Reply unless you specifically need this.",
-  },
-  {
-    value: "entity_status_signal",
-    label: "Track status changes (webhook)",
-    description:
-      "Zero LLM calls. Triggered by a webhook (e.g. a Power Automate flow) reporting a status change on one of your catalog types — creates folders, sends an email, and/or notifies Teams depending on the new status.",
-  },
-  {
-    value: "steps",
-    label: "Custom steps (advanced)",
-    description:
-      "Build the sequence yourself from steps — extract, look up, compute, branch, compose, act. Anything the fixed options above do, plus the things they can't (filing an email as a record, pricing from your own data). Only extract and compose cost tokens; the rest are free.",
-  },
-  {
-    value: "entity_correspondence_archive",
-    label: "Archive correspondence (email)",
-    description:
-      "Zero LLM calls. Finds a record from a reference token in a reply's subject line and archives the message plus any attachments into that record's folder.",
-  },
-];
-
-function deriveCategoryType(agent?: AgentFormValues): CategoryType {
-  if (!agent) return "acknowledge_reply";
-  if (agent.executionMode !== "HARNESS") return "loop";
-  if (
-    agent.pipelineKey === "entity_status_signal" ||
-    agent.pipelineKey === "entity_correspondence_archive" ||
-    agent.pipelineKey === "steps"
-  ) {
-    return agent.pipelineKey;
-  }
-  return agent.pipelineKey === "quote" ? "quote" : "acknowledge_reply";
-}
-
 type AgentFormValues = Pick<
   Agent,
   | "name"
@@ -93,24 +54,33 @@ type AgentFormValues = Pick<
   | "instructions"
   | "model"
   | "keywords"
-  | "replySubjectTemplate"
   | "executionMode"
   | "pipelineKey"
   | "guardrailKeywords"
   | "actionIntegrationId"
 > & {
   toolNames?: string[];
-  extractionFields?: ExtractionFieldConfig[];
 };
+
+// Anything that isn't the generic step pipeline and isn't free-form LOOP is
+// one of the original fixed shapes. Editing one is still allowed — it just
+// can't be re-pointed at a different fixed shape from here, because those
+// are no longer offered.
+function isLegacyPipeline(agent?: AgentFormValues): boolean {
+  if (!agent) return false;
+  return (
+    agent.executionMode === "HARNESS" &&
+    agent.pipelineKey !== null &&
+    agent.pipelineKey !== "steps"
+  );
+}
 
 export function AgentForm({
   action,
   agent,
   submitLabel,
-  entityTypes = [],
+  templates = [],
   gmailIntegrations = [],
-  initialEntityStatusSignalConfig,
-  initialEntityCorrespondenceArchiveConfig,
   initialStepsConfig,
 }: {
   action: (
@@ -119,38 +89,52 @@ export function AgentForm({
   ) => Promise<AgentFormState>;
   agent?: AgentFormValues;
   submitLabel: string;
-  // The organisation's own custom entity types (lib/entities/), each with
-  // its own field list — an extraction field can optionally look one up,
-  // and the two structured pipeline configs below reference a type's
-  // fields directly. Empty by default so this component doesn't break for
-  // any caller that hasn't been updated to fetch and pass them.
-  entityTypes?: EntityTypeOption[];
-  // The organisation's connected Gmail accounts — offered as the "action
-  // account" this agent's send_email tool uses. Empty by default for the
-  // same reason as entityTypes above.
+  // Built-in and this organisation's own saved starting points. Empty by
+  // default so any caller not yet passing them still renders.
+  templates?: TemplateOption[];
   gmailIntegrations?: { id: string; name: string }[];
-  // Pre-parsed server-side (app/(app)/agents/[id]/edit/page.tsx) against
-  // each pipeline's own schema — kept out of this "use client" component
-  // so it never needs to import a pipeline module itself (those pull in
-  // server-only code: Prisma, the MCP client, etc.).
-  initialEntityStatusSignalConfig?: EntityStatusSignalConfig;
-  initialEntityCorrespondenceArchiveConfig?: EntityCorrespondenceArchiveConfig;
-  // The agent's existing step programme, when editing one already on the
-  // steps pipeline. Raw rather than typed: it round-trips through the JSON
-  // editor and is validated server-side against the runtime schema.
+  // The agent's existing step programme when editing. Raw rather than
+  // typed: it round-trips through the JSON editor and is validated
+  // server-side against the same schema the runtime uses.
   initialStepsConfig?: Record<string, unknown>;
 }) {
   const [state, formAction] = useActionState<AgentFormState, FormData>(
     action,
     {},
   );
-  const grantedTools = new Set(agent?.toolNames ?? []);
-  const [categoryType, setCategoryType] = useState<CategoryType>(
-    deriveCategoryType(agent),
+
+  const legacy = isLegacyPipeline(agent);
+
+  const [stepsJson, setStepsJson] = useState(() =>
+    initialStepsConfig && Object.keys(initialStepsConfig).length > 0
+      ? JSON.stringify(initialStepsConfig, null, 2)
+      : DEFAULT_STEPS_JSON,
   );
-  const [extractionFields, setExtractionFields] = useState<
-    ExtractionFieldConfig[]
-  >(agent?.extractionFields ?? []);
+  // Controlled rather than defaultChecked, because installing a template
+  // ticks the tools its steps need.
+  const [toolNames, setToolNames] = useState<Set<string>>(
+    () => new Set(agent?.toolNames ?? []),
+  );
+
+  function installTemplate(template: TemplateOption) {
+    setStepsJson(JSON.stringify(template.steps, null, 2));
+    // Added to what's already ticked rather than replacing it — someone
+    // who ticked a tool before picking a template meant to keep it.
+    setToolNames((current) => {
+      const next = new Set(current);
+      for (const tool of template.suggestedTools) next.add(tool);
+      return next;
+    });
+  }
+
+  function toggleTool(name: string, checked: boolean) {
+    setToolNames((current) => {
+      const next = new Set(current);
+      if (checked) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+  }
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -168,12 +152,18 @@ export function AgentForm({
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="description">Description</Label>
-        <Textarea
+        <textarea
           id="description"
           name="description"
           defaultValue={agent?.description}
           required
+          rows={2}
+          className="w-full rounded-md border border-border bg-transparent p-3 text-sm"
         />
+        <p className="text-xs text-muted-foreground">
+          What this agent handles. The classifier routes inbound work by
+          comparing messages against this, so be specific about scope.
+        </p>
         {state.fieldErrors?.description && (
           <p className="text-sm text-destructive">
             {state.fieldErrors.description[0]}
@@ -182,47 +172,18 @@ export function AgentForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>Category type</Label>
-        <div className="flex flex-col gap-3 rounded-md border border-border p-3">
-          {CATEGORY_TYPE_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className="flex items-start gap-2 text-sm"
-              htmlFor={`categoryType-${option.value}`}
-            >
-              <input
-                type="radio"
-                id={`categoryType-${option.value}`}
-                name="categoryType"
-                value={option.value}
-                checked={categoryType === option.value}
-                onChange={() => setCategoryType(option.value)}
-                className="mt-0.5 h-4 w-4 border-border"
-              />
-              <span className="flex flex-col">
-                <span className="font-medium">{option.label}</span>
-                <span className="text-muted-foreground">
-                  {option.description}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
         <Label htmlFor="instructions">Instructions</Label>
-        <Textarea
+        <textarea
           id="instructions"
           name="instructions"
-          rows={6}
           defaultValue={agent?.instructions}
           required
+          rows={3}
+          className="w-full rounded-md border border-border bg-transparent p-3 text-sm"
         />
         <p className="text-xs text-muted-foreground">
-          For agents running a fixed pipeline, this is appended as extra
-          guidance after the pipeline&rsquo;s own tone and safety rules — it can
-          add to them, not override them.
+          Business-specific guidance, added on top of each step&rsquo;s own
+          instructions rather than replacing them.
         </p>
         {state.fieldErrors?.instructions && (
           <p className="text-sm text-destructive">
@@ -231,169 +192,54 @@ export function AgentForm({
         )}
       </div>
 
-      {categoryType === "acknowledge_reply" && (
-        <div className="flex flex-col gap-2">
-          <Label>Fields to extract</Label>
-          <p className="text-xs text-muted-foreground">
-            What to pull out of the message, beyond the customer&rsquo;s email
-            (always extracted automatically). Each becomes a fact available when
-            writing the reply — optionally, use the extracted value to look up a
-            record in one of your record types (needs the &ldquo;Search
-            records&rdquo; tool granted below).
+      {legacy ? (
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-secondary/40 p-3">
+          {/* categoryType now defaults to "steps" server-side. Without
+              this, saving an edit to a legacy agent would silently
+              re-point it at the step pipeline with no steps configured —
+              breaking a working agent through an unrelated edit. */}
+          <input
+            type="hidden"
+            name="categoryType"
+            value={agent?.pipelineKey ?? ""}
+          />
+          <p className="text-sm font-medium">
+            This agent runs the built-in &ldquo;{agent?.pipelineKey}&rdquo;
+            process
           </p>
-          <div className="flex flex-col gap-3 rounded-md border border-border p-3">
-            {extractionFields.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No extra fields — the reply will be written from the
-                customer&rsquo;s identity alone.
-              </p>
-            )}
-            {extractionFields.map((field, index) => (
-              <div key={index} className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  name="extractionFieldName"
-                  placeholder="Field name, e.g. caseNumber"
-                  value={field.name}
-                  onChange={(e) =>
-                    setExtractionFields((fields) =>
-                      fields.map((f, i) =>
-                        i === index ? { ...f, name: e.target.value } : f,
-                      ),
-                    )
-                  }
-                  className="sm:w-48"
-                />
-                <Input
-                  name="extractionFieldDescription"
-                  placeholder="What it is, e.g. the case number if mentioned"
-                  value={field.description}
-                  onChange={(e) =>
-                    setExtractionFields((fields) =>
-                      fields.map((f, i) =>
-                        i === index ? { ...f, description: e.target.value } : f,
-                      ),
-                    )
-                  }
-                  className="flex-1"
-                />
-                <select
-                  name="extractionFieldLookupRecordType"
-                  value={field.lookupRecordType ?? ""}
-                  onChange={(e) =>
-                    setExtractionFields((fields) =>
-                      fields.map((f, i) =>
-                        i === index
-                          ? {
-                              ...f,
-                              lookupRecordType: e.target.value || undefined,
-                            }
-                          : f,
-                      ),
-                    )
-                  }
-                  className="h-8 rounded-lg border border-border bg-background px-2 text-sm sm:w-40"
-                >
-                  <option value="">Don&rsquo;t look up</option>
-                  {entityTypes.map((e) => (
-                    <option key={e.name} value={e.name}>
-                      Look up in {e.name}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    setExtractionFields((fields) =>
-                      fields.filter((_, i) => i !== index),
-                    )
-                  }
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              className="self-start"
-              onClick={() =>
-                setExtractionFields((fields) => [
-                  ...fields,
-                  { name: "", description: "" },
-                ])
-              }
-            >
-              Add field
-            </Button>
-          </div>
-          {state.fieldErrors?.extractionFields && (
-            <p className="text-sm text-destructive">
-              {state.fieldErrors.extractionFields[0]}
-            </p>
-          )}
-        </div>
-      )}
-
-      {categoryType === "entity_status_signal" && (
-        <div className="flex flex-col gap-2">
-          <Label>Status signal configuration</Label>
-          <EntityStatusSignalFields
-            entityTypes={entityTypes}
-            initial={initialEntityStatusSignalConfig}
-          />
-          {state.fieldErrors?.pipelineConfig && (
-            <p className="text-sm text-destructive">
-              {state.fieldErrors.pipelineConfig[0]}
-            </p>
-          )}
-        </div>
-      )}
-
-      {categoryType === "steps" && (
-        <div className="flex flex-col gap-2">
-          <StepProgrammeFields initial={initialStepsConfig} />
-          {state.fieldErrors?.pipelineConfig && (
-            <p className="text-sm text-destructive">
-              {state.fieldErrors.pipelineConfig[0]}
-            </p>
-          )}
-        </div>
-      )}
-
-      {categoryType === "entity_correspondence_archive" && (
-        <div className="flex flex-col gap-2">
-          <Label>Correspondence archive configuration</Label>
-          <EntityCorrespondenceArchiveFields
-            entityTypes={entityTypes}
-            initial={initialEntityCorrespondenceArchiveConfig}
-          />
-          {state.fieldErrors?.pipelineConfig && (
-            <p className="text-sm text-destructive">
-              {state.fieldErrors.pipelineConfig[0]}
-            </p>
-          )}
-        </div>
-      )}
-
-      {categoryType === "acknowledge_reply" && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="guardrailKeywords">
-            Never say (guardrail keywords)
-          </Label>
-          <Input
-            id="guardrailKeywords"
-            name="guardrailKeywords"
-            defaultValue={agent?.guardrailKeywords?.join(", ")}
-            placeholder="e.g. refund, compensation, discount"
-          />
           <p className="text-xs text-muted-foreground">
-            Comma-separated. If the composed reply contains any of these words
-            or phrases, it&rsquo;s refused outright — never proposed for
-            approval, no exceptions. Leave blank for no guardrail.
+            It was created before agents became step sequences, and keeps
+            working exactly as it did. Its steps aren&rsquo;t editable here — to
+            move it onto steps, create a new agent from a template and retire
+            this one.
           </p>
         </div>
+      ) : (
+        <>
+          <TemplatePicker templates={templates} onInstall={installTemplate} />
+          <StepProgrammeFields value={stepsJson} onChange={setStepsJson} />
+          {state.fieldErrors?.pipelineConfig && (
+            <p className="text-sm text-destructive">
+              {state.fieldErrors.pipelineConfig[0]}
+            </p>
+          )}
+        </>
       )}
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="guardrailKeywords">Never say</Label>
+        <Input
+          id="guardrailKeywords"
+          name="guardrailKeywords"
+          defaultValue={agent?.guardrailKeywords?.join(", ")}
+          placeholder="e.g. refund, compensation, discount"
+        />
+        <p className="text-xs text-muted-foreground">
+          Comma-separated. If composed text contains any of these, the run fails
+          outright — it&rsquo;s never proposed for approval. Leave blank for no
+          guardrail.
+        </p>
+      </div>
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="model">Model</Label>
@@ -424,30 +270,7 @@ export function AgentForm({
           no other agent&rsquo;s keywords also match, routing skips the LLM
           classifier entirely. Leave blank to always ask the classifier.
         </p>
-        {state.fieldErrors?.keywords && (
-          <p className="text-sm text-destructive">
-            {state.fieldErrors.keywords[0]}
-          </p>
-        )}
       </div>
-
-      {categoryType !== "entity_status_signal" &&
-        categoryType !== "entity_correspondence_archive" && (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="replySubjectTemplate">Reply subject line</Label>
-            <Input
-              id="replySubjectTemplate"
-              name="replySubjectTemplate"
-              defaultValue={agent?.replySubjectTemplate ?? ""}
-              placeholder="Leave blank to use the default for this agent's job"
-            />
-            {state.fieldErrors?.replySubjectTemplate && (
-              <p className="text-sm text-destructive">
-                {state.fieldErrors.replySubjectTemplate[0]}
-              </p>
-            )}
-          </div>
-        )}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="actionIntegrationId">Action account</Label>
@@ -465,16 +288,10 @@ export function AgentForm({
           ))}
         </select>
         <p className="text-xs text-muted-foreground">
-          Which connected account this agent&rsquo;s send_email tool sends from.
-          Leave as default unless this business has connected more than one
-          Gmail account and needs different categories to reply from different
-          addresses.
+          Which connected account this agent sends from. Leave as default unless
+          this business has connected more than one and needs different agents
+          replying from different addresses.
         </p>
-        {state.fieldErrors?.actionIntegrationId && (
-          <p className="text-sm text-destructive">
-            {state.fieldErrors.actionIntegrationId[0]}
-          </p>
-        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -497,7 +314,8 @@ export function AgentForm({
                       id={`tool-${tool.name}`}
                       name="toolNames"
                       value={tool.name}
-                      defaultChecked={grantedTools.has(tool.name)}
+                      checked={toolNames.has(tool.name)}
+                      onChange={(e) => toggleTool(tool.name, e.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-border"
                     />
                     <span className="flex flex-col">

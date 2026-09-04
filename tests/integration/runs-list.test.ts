@@ -67,6 +67,12 @@ describe("listRunsForOrganisation", () => {
     await prisma.runStep.deleteMany({ where: { agentRunId: { in: runIds } } });
     await prisma.agentRun.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });

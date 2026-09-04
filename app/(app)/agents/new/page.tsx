@@ -1,14 +1,15 @@
 import { createAgentAction } from "@/app/(app)/agents/actions";
 import { AgentForm } from "@/components/agents/agent-form";
-import { entityFieldsSchema } from "@/lib/entities/schemas";
-import * as entityTypeService from "@/lib/entities/entity-type-service";
+import * as templateService from "@/lib/agents/template-service";
 import * as integrationService from "@/lib/integrations/integration-service";
 import { getCurrentOrganisation } from "@/lib/organisations/current-organisation";
 
+export const dynamic = "force-dynamic";
+
 export default async function NewAgentPage() {
   const organisation = await getCurrentOrganisation();
-  const [entityTypes, gmailIntegrations] = await Promise.all([
-    entityTypeService.listEntityTypes(organisation.id),
+  const [templates, gmailIntegrations] = await Promise.all([
+    templateService.listTemplates(organisation.id),
     integrationService.listIntegrationsByProvider(organisation.id, "gmail"),
   ]);
 
@@ -18,10 +19,7 @@ export default async function NewAgentPage() {
       <AgentForm
         action={createAgentAction}
         submitLabel="Create agent"
-        entityTypes={entityTypes.map((e) => ({
-          name: e.name,
-          fields: entityFieldsSchema.parse(e.fields).map((f) => f.name),
-        }))}
+        templates={templates}
         gmailIntegrations={gmailIntegrations.map((i) => ({
           id: i.id,
           name: i.name,

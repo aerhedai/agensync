@@ -5,6 +5,7 @@ import type { Agent, Organisation } from "@/lib/generated/prisma/client";
 import { proposeAction } from "@/lib/harness/propose-action";
 import { connectMcpClient } from "@/lib/mcp/client";
 import * as runRepository from "@/lib/runs/run-repository";
+import { createRecord } from "@/tests/helpers/records";
 
 /**
  * Proves proposeAction's gate is genuinely driven by the tool being
@@ -27,13 +28,10 @@ describe("proposeAction", () => {
         name: "Propose Action Test Org",
       },
     });
-    await prisma.customer.create({
-      data: {
-        organisationId,
-        name: "Test Customer",
-        email: "test@propose-action.test",
-        company: "Test Co",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Test Customer",
+      email: "test@propose-action.test",
+      company: "Test Co",
     });
     agent = await prisma.agent.create({
       data: {
@@ -67,7 +65,12 @@ describe("proposeAction", () => {
     await prisma.agentRun.deleteMany({ where: { organisationId } });
     await prisma.agentTool.deleteMany({ where: { agentId: agent.id } });
     await prisma.agent.deleteMany({ where: { organisationId } });
-    await prisma.customer.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });

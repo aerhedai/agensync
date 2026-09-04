@@ -8,6 +8,7 @@ import type {
 import { prisma } from "@/lib/db/prisma";
 import { runHarnessPipeline } from "@/lib/harness/run-harness-pipeline";
 import { provisionEmailWorkflow } from "@/lib/workflows/provision-email-workflow";
+import { createRecord } from "@/tests/helpers/records";
 
 // The concrete proof that provisionEmailWorkflow() genuinely supports more
 // than one business: two organisations provisioned with different
@@ -58,8 +59,12 @@ describe("multi-org catalog isolation", () => {
         where: { agent: { organisationId } },
       });
       await prisma.agent.deleteMany({ where: { organisationId } });
-      await prisma.product.deleteMany({ where: { organisationId } });
-      await prisma.customer.deleteMany({ where: { organisationId } });
+      await prisma.customEntityRecord.deleteMany({
+        where: { organisationId: organisationId },
+      });
+      await prisma.customEntityType.deleteMany({
+        where: { organisationId: organisationId },
+      });
       await prisma.organisation.deleteMany({ where: { id: organisationId } });
     }
     await prisma.$disconnect();
@@ -79,21 +84,17 @@ describe("multi-org catalog isolation", () => {
       model: "test-model",
       quoteKeywords: ["quote"],
       complaintsKeywords: ["complaint"],
-      products: [
-        {
-          sku: "A-SKU",
-          name: "Acme Widget",
-          unitPrice: 15,
-          stockQuantity: 100,
-        },
-      ],
-      customers: [
-        {
-          name: "A Customer",
-          email: "buyer@acme-test.local",
-          company: "Acme Buyer Co",
-        },
-      ],
+    });
+    await createRecord(orgAId, "Product", {
+      sku: "A-SKU",
+      name: "Acme Widget",
+      unitPrice: 15,
+      stockQuantity: 100,
+    });
+    await createRecord(orgAId, "Customer", {
+      name: "A Customer",
+      email: "buyer@acme-test.local",
+      company: "Acme Buyer Co",
     });
     await provisionEmailWorkflow({
       organisationId: orgBId,
@@ -101,21 +102,17 @@ describe("multi-org catalog isolation", () => {
       model: "test-model",
       quoteKeywords: ["quote"],
       complaintsKeywords: ["complaint"],
-      products: [
-        {
-          sku: "B-SKU",
-          name: "Northwind Bolt",
-          unitPrice: 8.25,
-          stockQuantity: 500,
-        },
-      ],
-      customers: [
-        {
-          name: "B Customer",
-          email: "buyer@northwind-test.local",
-          company: "Northwind Buyer Co",
-        },
-      ],
+    });
+    await createRecord(orgBId, "Product", {
+      sku: "B-SKU",
+      name: "Northwind Bolt",
+      unitPrice: 8.25,
+      stockQuantity: 500,
+    });
+    await createRecord(orgBId, "Customer", {
+      name: "B Customer",
+      email: "buyer@northwind-test.local",
+      company: "Northwind Buyer Co",
     });
 
     const quoteAgentA = await prisma.agent.findFirstOrThrow({

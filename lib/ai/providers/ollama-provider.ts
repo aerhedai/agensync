@@ -3,6 +3,8 @@ import type {
   AIProvider,
   AIResponse,
   AIToolCallRequest,
+  EmbeddingRequest,
+  EmbeddingResponse,
   GenerateRequest,
 } from "@/lib/ai/provider";
 
@@ -117,5 +119,47 @@ export class OllamaProvider implements AIProvider {
         },
       }),
     };
+  }
+
+  /**
+   * Ollama's /api/embed endpoint. Batches every input into one request —
+   * embedding a 40-chunk document as 40 round trips would dominate
+   * ingestion time for no reason.
+   *
+   * Uses the same bearer-token header as generateResponse when a proxy
+   * secret is configured, since it goes through the same auth proxy.
+   */
+  async generateEmbedding(
+    request: EmbeddingRequest,
+  ): Promise<EmbeddingResponse> {
+    const response = await fetch(`${this.baseUrl}/api/embed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.proxySecret && {
+          Authorization: `Bearer ${this.proxySecret}`,
+        }),
+      },
+      body: JSON.stringify({
+        model: request.model,
+        input: request.input,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Ollama embedding request failed: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const body = (await response.json()) as { embeddings?: number[][] };
+    if (!body.embeddings || body.embeddings.length !== request.input.length) {
+      // A mismatch here would silently pair the wrong vector with the
+      // wrong chunk, which is far worse than failing outright.
+      throw new Error(
+        "Ollama returned an unexpected number of embeddings for the inputs given.",
+      );
+    }
+    return { embeddings: body.embeddings };
   }
 }

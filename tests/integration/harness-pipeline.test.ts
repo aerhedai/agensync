@@ -6,6 +6,7 @@ import type { Agent, User } from "@/lib/generated/prisma/client";
 import { runHarnessPipeline } from "@/lib/harness/run-harness-pipeline";
 import { resumeRun } from "@/lib/runtime/agent-runtime";
 import { provisionEmailWorkflow } from "@/lib/workflows/provision-email-workflow";
+import { createRecord } from "@/tests/helpers/records";
 
 // Same rationale as agent-runtime.test.ts: Ollama isn't reachable from CI,
 // so the harness's control flow — extraction, deterministic tool
@@ -35,8 +36,12 @@ async function cleanUpProvisionOrg(organisationId: string) {
   await prisma.workflow.deleteMany({ where: { organisationId } });
   await prisma.agentTool.deleteMany({ where: { agent: { organisationId } } });
   await prisma.agent.deleteMany({ where: { organisationId } });
-  await prisma.product.deleteMany({ where: { organisationId } });
-  await prisma.customer.deleteMany({ where: { organisationId } });
+  await prisma.customEntityRecord.deleteMany({
+    where: { organisationId: organisationId },
+  });
+  await prisma.customEntityType.deleteMany({
+    where: { organisationId: organisationId },
+  });
   await prisma.organisation.deleteMany({ where: { id: organisationId } });
 }
 
@@ -57,22 +62,16 @@ describe("harness pipeline", () => {
     });
     // Real per-org catalog rows the pipeline's real find_record /
     // search_records tool calls resolve against.
-    await prisma.product.create({
-      data: {
-        organisationId,
-        sku: "TEST-WIDGET-A",
-        name: "Product A",
-        unitPrice: 15,
-        stockQuantity: 700,
-      },
+    await createRecord(organisationId, "Product", {
+      sku: "TEST-WIDGET-A",
+      name: "Product A",
+      unitPrice: 15,
+      stockQuantity: 700,
     });
-    await prisma.customer.create({
-      data: {
-        organisationId,
-        name: "Test Customer",
-        email: "buyer@customer-abc.test",
-        company: "Customer ABC Ltd",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Test Customer",
+      email: "buyer@customer-abc.test",
+      company: "Customer ABC Ltd",
     });
 
     quoteAgent = await prisma.agent.create({
@@ -140,8 +139,12 @@ describe("harness pipeline", () => {
     });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.user.deleteMany({ where: { organisationId } });
-    await prisma.product.deleteMany({ where: { organisationId } });
-    await prisma.customer.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -359,21 +362,17 @@ describe("harness pipeline", () => {
       model: "test-model",
       quoteKeywords: ["quote"],
       complaintsKeywords: ["complaint"],
-      products: [
-        {
-          sku: "PROV-WIDGET",
-          name: "Product A",
-          unitPrice: 15,
-          stockQuantity: 700,
-        },
-      ],
-      customers: [
-        {
-          name: "Provisioned Buyer",
-          email: "buyer@provisioned.test",
-          company: "Provisioned Ltd",
-        },
-      ],
+    });
+    await createRecord(provisionOrgId, "Product", {
+      sku: "PROV-WIDGET",
+      name: "Product A",
+      unitPrice: 15,
+      stockQuantity: 700,
+    });
+    await createRecord(provisionOrgId, "Customer", {
+      name: "Provisioned Buyer",
+      email: "buyer@provisioned.test",
+      company: "Provisioned Ltd",
     });
 
     const provisionedQuoteAgent = await prisma.agent.findFirstOrThrow({

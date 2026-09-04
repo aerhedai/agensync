@@ -171,3 +171,60 @@ export function buildRecordDataSchema(fields: EntityFieldConfig[]) {
   }
   return z.object(shape);
 }
+
+/**
+ * Raised when a record's values don't satisfy its type's field definitions.
+ *
+ * Carries the per-field issues rather than a single opaque string, so a tool
+ * can tell a model exactly which field it got wrong — "unitPrice: Must be an
+ * amount" is actionable, "invalid input" is not.
+ */
+export class RecordValidationError extends Error {
+  constructor(public readonly issues: string[]) {
+    super(`These field values aren't valid — ${issues.join("; ")}`);
+    this.name = "RecordValidationError";
+  }
+}
+
+/**
+ * Validates and coerces a record's data against its type's fields.
+ *
+ * This is what makes a typed field mean anything on the agent write path.
+ * The Catalog form has always run buildRecordDataSchema itself, but
+ * create_record and update_record went straight to the repository, so a
+ * model supplying "12.5" for a currency field stored the *string* "12.5" —
+ * which then silently broke any compute step or policy that tried to do
+ * arithmetic on it. Reads looked fine, which is what made it hard to see.
+ *
+ * `partial` is for updates, which merge a patch: requiring every field would
+ * make it impossible to change one field of a record without resending all
+ * of them.
+ *
+ * Keys the type doesn't define are passed through untouched rather than
+ * stripped — same "data outlives schema" behaviour as the rest of this
+ * system, so removing a field from a type doesn't delete the data under it
+ * on the next write.
+ */
+export function coerceRecordData(
+  fields: EntityFieldConfig[],
+  data: Record<string, unknown>,
+  options: { partial?: boolean } = {},
+): Record<string, unknown> {
+  const base = buildRecordDataSchema(fields);
+  const schema = options.partial ? base.partial() : base;
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new RecordValidationError(
+      result.error.issues.map(
+        (issue) => `${issue.path.join(".") || "value"}: ${issue.message}`,
+      ),
+    );
+  }
+
+  const known = new Set(fields.map((f) => f.name));
+  const untouched: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (!known.has(key)) untouched[key] = value;
+  }
+  return { ...untouched, ...(result.data as Record<string, unknown>) };
+}

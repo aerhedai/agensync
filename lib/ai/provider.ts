@@ -43,6 +43,24 @@ export interface AIResponse {
   usage?: AITokenUsage;
 }
 
+export interface EmbeddingRequest {
+  model: string;
+  /** One or more texts to embed in a single call. */
+  input: string[];
+}
+
+export interface EmbeddingResponse {
+  /** One vector per input, in the same order. */
+  embeddings: number[][];
+}
+
 export interface AIProvider {
   generateResponse(request: GenerateRequest): Promise<AIResponse>;
+  /**
+   * Optional: not every provider offers embeddings, and nothing outside
+   * the knowledge base needs them. Callers must handle its absence rather
+   * than assume — lib/knowledge/ surfaces a clear "this provider can't
+   * embed" error instead of failing obscurely.
+   */
+  generateEmbedding?(request: EmbeddingRequest): Promise<EmbeddingResponse>;
 }

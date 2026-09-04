@@ -48,8 +48,6 @@ export async function deleteOrganisationCascade(organisationId: string) {
     prisma.workflow.deleteMany({ where: { organisationId } }),
     prisma.customEntityRecord.deleteMany({ where: { organisationId } }),
     prisma.customEntityType.deleteMany({ where: { organisationId } }),
-    prisma.product.deleteMany({ where: { organisationId } }),
-    prisma.customer.deleteMany({ where: { organisationId } }),
     prisma.integration.deleteMany({ where: { organisationId } }),
     prisma.user.deleteMany({ where: { organisationId } }),
     prisma.organisation.delete({ where: { id: organisationId } }),

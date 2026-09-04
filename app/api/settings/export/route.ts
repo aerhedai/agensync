@@ -14,40 +14,40 @@ export async function GET() {
   const organisation = await getCurrentOrganisation();
   const organisationId = organisation.id;
 
-  const [
-    agents,
-    agentRuns,
-    approvals,
-    customers,
-    products,
-    integrations,
-    workflows,
-  ] = await Promise.all([
-    prisma.agent.findMany({
-      where: { organisationId },
-      include: { tools: true },
-    }),
-    prisma.agentRun.findMany({
-      where: { organisationId },
-      include: { steps: true, toolCalls: true },
-    }),
-    prisma.approval.findMany({ where: { organisationId } }),
-    prisma.customer.findMany({ where: { organisationId } }),
-    prisma.product.findMany({ where: { organisationId } }),
-    prisma.integration.findMany({
-      where: { organisationId },
-      select: {
-        id: true,
-        provider: true,
-        name: true,
-        config: true,
-        expiresAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.workflow.findMany({ where: { organisationId } }),
-  ]);
+  const [agents, agentRuns, approvals, recordTypes, integrations, workflows] =
+    await Promise.all([
+      prisma.agent.findMany({
+        where: { organisationId },
+        include: { tools: true },
+      }),
+      prisma.agentRun.findMany({
+        where: { organisationId },
+        include: { steps: true, toolCalls: true },
+      }),
+      prisma.approval.findMany({ where: { organisationId } }),
+      // Record types with their rows, which since the catalog collapse is
+      // every piece of business data this organisation owns. The previous
+      // version exported the Product and Customer tables and nothing else, so
+      // a business's own record types — often the only ones it actually used —
+      // silently never made it into its own export.
+      prisma.customEntityType.findMany({
+        where: { organisationId },
+        include: { records: true },
+      }),
+      prisma.integration.findMany({
+        where: { organisationId },
+        select: {
+          id: true,
+          provider: true,
+          name: true,
+          config: true,
+          expiresAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      prisma.workflow.findMany({ where: { organisationId } }),
+    ]);
 
   const payload = {
     exportedAt: new Date().toISOString(),
@@ -59,8 +59,7 @@ export async function GET() {
     agents,
     agentRuns,
     approvals,
-    customers,
-    products,
+    recordTypes,
     integrations,
     workflows,
   };

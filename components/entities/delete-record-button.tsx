@@ -2,7 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 
-import { deleteRecordAction } from "@/app/(app)/catalog/entities/[id]/actions";
+import { deleteRecordAction } from "@/app/(app)/catalog/[id]/actions";
 import { Button } from "@/components/ui/button";
 
 function SubmitButton() {

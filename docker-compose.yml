@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector rather than plain postgres: the knowledge base
+    # needs the `vector` extension, which the stock image doesn't ship.
+    # Same Postgres 16 underneath, and the same version Neon provides.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: aperator

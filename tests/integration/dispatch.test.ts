@@ -104,6 +104,12 @@ describe("dispatchInboundMessage", () => {
     await prisma.workflowAgent.deleteMany({ where: { workflowId } });
     await prisma.workflow.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -168,7 +174,109 @@ describe("dispatchInboundMessage", () => {
 
     expect(result).toEqual({ matched: false, reason: "no_workflow" });
 
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: otherOrg.id },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: otherOrg.id },
+    });
     await prisma.organisation.delete({ where: { id: otherOrg.id } });
+  });
+
+  it("routes to a lone active handler without calling the classifier at all", async () => {
+    // A workflow with one active handler has no routing decision to make.
+    // Asking the model a question with one possible answer is pure waste,
+    // and deterministicClassify can't cover it — that only matches agents
+    // with keywords configured, so a keyword-less single handler used to
+    // pay for a full LLM classification every message.
+    const orgId = "test-org-dispatch-single-handler";
+    await prisma.organisation.create({
+      data: { id: orgId, clerkOrgId: orgId, name: "Single Handler Org" },
+    });
+    const classifier = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Classifier",
+        description: "Routes inbound messages.",
+        instructions: "Decide which agent should handle this message.",
+        model: "test-model",
+        status: "ACTIVE",
+      },
+    });
+    const onlyHandler = await prisma.agent.create({
+      data: {
+        organisationId: orgId,
+        name: "Only Handler",
+        description: "Handles everything.",
+        instructions: "Handle it.",
+        model: "test-model",
+        status: "ACTIVE",
+        executionMode: "HARNESS",
+        pipelineKey: "steps",
+        // Deliberately no keywords — the keyword fast path must not be
+        // what makes this pass.
+        keywords: [],
+        pipelineConfig: {
+          steps: [
+            {
+              kind: "compute",
+              as: "noted",
+              operation: "template",
+              operands: ["handled"],
+            },
+          ],
+        } as never,
+      },
+    });
+    const workflow = await prisma.workflow.create({
+      data: {
+        organisationId: orgId,
+        name: "Email Handling",
+        description: "Test workflow.",
+        trigger: "EMAIL",
+        status: "ACTIVE",
+      },
+    });
+    await prisma.workflowAgent.createMany({
+      data: [
+        { workflowId: workflow.id, agentId: classifier.id, role: "CLASSIFIER" },
+        { workflowId: workflow.id, agentId: onlyHandler.id, role: "HANDLER" },
+      ],
+    });
+
+    try {
+      // scriptedProvider([]) throws the moment anything asks the model, so
+      // this passing is the proof that no LLM call happened.
+      const result = await dispatchInboundMessage(
+        orgId,
+        "EMAIL",
+        "Anything at all",
+        scriptedProvider([]),
+      );
+
+      expect(result.matched).toBe(true);
+      if (result.matched) expect(result.agentId).toBe(onlyHandler.id);
+    } finally {
+      await prisma.toolCall.deleteMany({
+        where: { agentRun: { organisationId: orgId } },
+      });
+      await prisma.runStep.deleteMany({
+        where: { agentRun: { organisationId: orgId } },
+      });
+      await prisma.agentRun.deleteMany({ where: { organisationId: orgId } });
+      await prisma.workflowAgent.deleteMany({
+        where: { workflowId: workflow.id },
+      });
+      await prisma.workflow.deleteMany({ where: { organisationId: orgId } });
+      await prisma.agent.deleteMany({ where: { organisationId: orgId } });
+      await prisma.customEntityRecord.deleteMany({
+        where: { organisationId: orgId },
+      });
+      await prisma.customEntityType.deleteMany({
+        where: { organisationId: orgId },
+      });
+      await prisma.organisation.deleteMany({ where: { id: orgId } });
+    }
   });
 
   it("never lets the sender's address influence classification — found live: an address containing a keyword substring silently misrouted every message", async () => {
@@ -273,6 +381,12 @@ describe("dispatchInboundMessage", () => {
       });
       await prisma.workflow.deleteMany({ where: { organisationId: orgId } });
       await prisma.agent.deleteMany({ where: { organisationId: orgId } });
+      await prisma.customEntityRecord.deleteMany({
+        where: { organisationId: orgId },
+      });
+      await prisma.customEntityType.deleteMany({
+        where: { organisationId: orgId },
+      });
       await prisma.organisation.deleteMany({ where: { id: orgId } });
     }
   });
@@ -460,6 +574,12 @@ describe("dispatchInboundMessage", () => {
       await prisma.workflow.deleteMany({ where: { organisationId: orgId } });
       await prisma.agent.deleteMany({ where: { organisationId: orgId } });
       await prisma.integration.deleteMany({ where: { organisationId: orgId } });
+      await prisma.customEntityRecord.deleteMany({
+        where: { organisationId: orgId },
+      });
+      await prisma.customEntityType.deleteMany({
+        where: { organisationId: orgId },
+      });
       await prisma.organisation.deleteMany({ where: { id: orgId } });
     }
   });

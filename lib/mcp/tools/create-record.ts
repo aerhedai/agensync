@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import * as entityRecordService from "@/lib/entities/entity-record-service";
 import { InvalidReferenceError } from "@/lib/entities/references";
+import { RecordValidationError } from "@/lib/entities/schemas";
 import { toolError, toolSuccess } from "@/lib/mcp/tool-result";
 import type { ToolName } from "@/lib/mcp/tool-registry";
 import {
@@ -73,7 +74,10 @@ export function createCreateRecordTool(organisationId: string) {
           },
         });
       } catch (error) {
-        if (error instanceof InvalidReferenceError) {
+        if (
+          error instanceof InvalidReferenceError ||
+          error instanceof RecordValidationError
+        ) {
           return toolError(error.message);
         }
         const message = await describeRecordTypeError(organisationId, error);

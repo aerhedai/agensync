@@ -4,6 +4,7 @@ import type { AIProvider, AIResponse } from "@/lib/ai/provider";
 import { prisma } from "@/lib/db/prisma";
 import type { Agent } from "@/lib/generated/prisma/client";
 import { runHarnessPipeline } from "@/lib/harness/run-harness-pipeline";
+import { createRecord } from "@/tests/helpers/records";
 
 // Same rationale as harness-pipeline.test.ts: Ollama isn't reachable from
 // CI, so this proves the generic pipeline's control flow — dynamic
@@ -37,13 +38,10 @@ describe("acknowledge_reply pipeline", () => {
         currency: "GBP",
       },
     });
-    await prisma.customer.create({
-      data: {
-        organisationId,
-        name: "Jordan Reyes",
-        email: "jordan@case-customer.test",
-        company: "Reyes & Co",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Jordan Reyes",
+      email: "jordan@case-customer.test",
+      company: "Reyes & Co",
     });
 
     // Proves this isn't Complaints/General reskinned — a law-firm-shaped
@@ -163,7 +161,6 @@ describe("acknowledge_reply pipeline", () => {
       },
     });
     await prisma.agent.deleteMany({ where: { organisationId } });
-    await prisma.customer.deleteMany({ where: { organisationId } });
     await prisma.customEntityRecord.deleteMany({ where: { organisationId } });
     await prisma.customEntityType.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });

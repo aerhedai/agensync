@@ -22,6 +22,11 @@ const categoryTypeSchema = z.enum([
   "quote",
   "entity_status_signal",
   "entity_correspondence_archive",
+  // "steps": the generic one — this agent runs its own configured step
+  // sequence rather than a shape fixed in code
+  // (docs/agent-step-engine-design.md). Every option above it is a fixed
+  // shape; this is the one that isn't.
+  "steps",
 ]);
 export type CategoryType = z.infer<typeof categoryTypeSchema>;
 
@@ -35,7 +40,12 @@ export const agentInputSchema = z
       .min(1, "Instructions are required")
       .max(10000),
     model: z.string().trim().min(1, "Model is required").max(200),
-    categoryType: categoryTypeSchema,
+    // Defaults to "steps": every agent created through the form is now a
+    // step programme. The other values remain valid so agents created
+    // before this still load, edit and run — but nothing offers them as a
+    // choice any more, because a fixed process shape is a template's job,
+    // not a platform-level option (CLAUDE.md §3).
+    categoryType: categoryTypeSchema.default("steps"),
     // HARNESS-only. Empty string normalizes to null — "use the pipeline's
     // hardcoded default subject" (e.g. "Re: your inquiry").
     replySubjectTemplate: z

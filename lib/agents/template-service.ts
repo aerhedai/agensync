@@ -1,0 +1,119 @@
+import { BUILT_IN_TEMPLATES } from "@/lib/agents/built-in-templates";
+import { prisma } from "@/lib/db/prisma";
+import { stepProgrammeSchema } from "@/lib/harness/steps/schema";
+
+/**
+ * Agent templates: named, reusable step programmes.
+ *
+ * Two sources, one list: built-ins (organisationId null, visible to every
+ * business) and a business's own saved ones. Callers don't need to care
+ * which is which beyond not being able to delete a built-in.
+ */
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  steps: unknown;
+  suggestedTools: string[];
+  builtIn: boolean;
+}
+
+export async function listTemplates(
+  organisationId: string,
+): Promise<TemplateSummary[]> {
+  // Seeded on first read rather than by migration or at boot: the
+  // definitions live in code (built-in-templates.ts), so a migration would
+  // drift from them the moment one changed. Same lazy-provisioning shape
+  // getCurrentOrganisation already uses, and idempotent — seedBuiltInTemplates
+  // matches on name, so this converges rather than duplicating.
+  const builtInCount = await prisma.agentTemplate.count({
+    where: { organisationId: null },
+  });
+  if (builtInCount < BUILT_IN_TEMPLATES.length) {
+    await seedBuiltInTemplates();
+  }
+
+  const rows = await prisma.agentTemplate.findMany({
+    where: { OR: [{ organisationId: null }, { organisationId }] },
+    orderBy: [{ organisationId: "asc" }, { name: "asc" }],
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    steps: row.steps,
+    suggestedTools: row.suggestedTools,
+    builtIn: row.organisationId === null,
+  }));
+}
+
+export async function saveTemplate(
+  organisationId: string,
+  input: {
+    name: string;
+    description: string;
+    steps: unknown;
+    suggestedTools: string[];
+  },
+) {
+  // A template that wouldn't run isn't a template — validated against the
+  // same schema the runtime uses, so installing one can't produce a
+  // broken agent.
+  const parsed = stepProgrammeSchema.safeParse(input.steps);
+  if (!parsed.success) {
+    throw new Error(
+      `These steps aren't valid: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
+    );
+  }
+  return prisma.agentTemplate.create({
+    data: {
+      organisationId,
+      name: input.name,
+      description: input.description,
+      steps: parsed.data,
+      suggestedTools: input.suggestedTools,
+    },
+  });
+}
+
+export async function deleteTemplate(organisationId: string, id: string) {
+  // Scoped to the organisation's own templates: a built-in has a null
+  // organisationId and so can never match, which is what stops one
+  // business deleting a template everyone else depends on.
+  const { count } = await prisma.agentTemplate.deleteMany({
+    where: { id, organisationId },
+  });
+  return count > 0;
+}
+
+/**
+ * Seeds the built-in templates, idempotently.
+ *
+ * Matched by name among the null-organisation rows rather than by a fixed
+ * id, so re-running updates the shipped definition in place instead of
+ * accumulating duplicates every deploy.
+ */
+export async function seedBuiltInTemplates(): Promise<number> {
+  let written = 0;
+  for (const template of BUILT_IN_TEMPLATES) {
+    const existing = await prisma.agentTemplate.findFirst({
+      where: { organisationId: null, name: template.name },
+    });
+    const data = {
+      name: template.name,
+      description: template.description,
+      steps: template.steps as object,
+      suggestedTools: template.suggestedTools,
+    };
+    if (existing) {
+      await prisma.agentTemplate.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.agentTemplate.create({
+        data: { ...data, organisationId: null },
+      });
+    }
+    written += 1;
+  }
+  return written;
+}

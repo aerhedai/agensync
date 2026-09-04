@@ -127,6 +127,7 @@ model Organisation {
   customEntityRecords CustomEntityRecord[]
   knowledgeDocuments  KnowledgeDocument[]
   knowledgeChunks     KnowledgeChunk[]
+  agentTemplates      AgentTemplate[]
 }
 
 // Real, org-scoped catalog data, replacing the old lib/mcp/mock-data.ts
@@ -608,5 +609,39 @@ model KnowledgeChunk {
   organisation Organisation      @relation(fields: [organisationId], references: [id])
 
   @@index([documentId])
+  @@index([organisationId])
+}
+
+// A named, reusable step programme a business can install onto a new agent
+// and then edit freely (docs/agent-step-engine-design.md §6).
+//
+// This is where verticals live. "Quote Handling" is a template, not a
+// platform feature — the whole point of CLAUDE.md §3 is that a specific
+// business process must never become a first-class primitive that every
+// unrelated business has to scroll past.
+//
+// Database rows rather than code constants so a business can save its own
+// working agent as a reusable starting point, not only install ones that
+// shipped with the product. organisationId is nullable for exactly that
+// reason: null means a built-in template visible to everyone, set means a
+// business's own private one.
+model AgentTemplate {
+  id             String  @id @default(cuid())
+  organisationId String?
+  name           String
+  description    String
+  // The step programme, same shape Agent.pipelineConfig holds and
+  // validated by the same schema (lib/harness/steps/schema.ts) — a
+  // template that wouldn't run is not a template.
+  steps          Json    @default("{}")
+  // Tools the steps need. Installing a template pre-ticks these rather
+  // than granting them silently: a tool an agent holds without anyone
+  // choosing it is exactly what the per-agent grant model exists to stop.
+  suggestedTools String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id])
+
   @@index([organisationId])
 }

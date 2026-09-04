@@ -11,6 +11,34 @@ import { pipelineConfigSchema as stepsConfigSchema } from "@/lib/harness/pipelin
 // exports must all be async server actions, which these plain parsing
 // functions aren't.
 
+/**
+ * Resolves which category type a submission is for.
+ *
+ * `formData.get("categoryType")` returns `null`, not `undefined`, when the
+ * field is absent from the form. That distinction matters:
+ * `categoryTypeSchema.default("steps")` in schemas.ts only substitutes for
+ * `undefined` — Zod's `.default()` never catches `null` — so passing the raw
+ * `null` straight into the schema fails validation outright instead of
+ * defaulting. The generic agent form only renders a `categoryType` hidden
+ * input for legacy agents (agent-form.tsx), so every new agent and every
+ * edit of a non-legacy agent submits with the field genuinely absent, which
+ * made every one of those saves fail — silently, since nothing in the form
+ * renders a `categoryType` field error.
+ *
+ * One resolver, used everywhere `categoryType` is read from `FormData`, so
+ * there's exactly one place absent-vs-empty-vs-present is decided rather
+ * than two call sites (the schema parse and validatePipelineConfig in
+ * actions.ts) quietly disagreeing about it — which is what let the second
+ * half of this bug hide behind a fix to only the first: even with the
+ * schema defaulting corrected, validatePipelineConfig was called with the
+ * raw un-defaulted form value, matched none of its known categories, and
+ * silently discarded the submitted step programme as `{}`.
+ */
+export function resolveCategoryType(formData: FormData): string {
+  const raw = formData.get("categoryType");
+  return typeof raw === "string" && raw.length > 0 ? raw : "steps";
+}
+
 function stringAt(values: FormDataEntryValue[], i: number): string {
   const value = values[i];
   return typeof value === "string" ? value : "";

@@ -121,62 +121,24 @@ model Organisation {
   approvals           Approval[]
   integrations        Integration[]
   workflows           Workflow[]
-  products            Product[]
-  customers           Customer[]
   customEntityTypes   CustomEntityType[]
   customEntityRecords CustomEntityRecord[]
   knowledgeDocuments  KnowledgeDocument[]
   knowledgeChunks     KnowledgeChunk[]
+  agentTemplates      AgentTemplate[]
 }
 
-// Real, org-scoped catalog data, replacing the old lib/mcp/mock-data.ts
-// shared in-memory arrays — each business gets its own products, not a
-// hardcoded demo catalog. stockQuantity is folded directly onto Product
-// rather than a separate Inventory model: the old mock data already had a
-// strict 1:1 product-to-quantity relationship with no second consumer that
-// would justify splitting it out (CLAUDE.md #17 — no unnecessary entities).
-model Product {
-  id             String   @id @default(cuid())
-  organisationId String
-  sku            String
-  name           String
-  // Money — Decimal (Postgres numeric), never Float. A price that
-  // round-trips through IEEE-754 float arithmetic can drift; Decimal
-  // (decimal.js under Prisma) is the standard mapping for currency values.
-  unitPrice      Decimal  @db.Decimal(10, 2)
-  stockQuantity  Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organisation Organisation @relation(fields: [organisationId], references: [id])
-
-  @@unique([organisationId, sku])
-  @@index([organisationId])
-}
-
-model Customer {
-  id             String   @id @default(cuid())
-  organisationId String
-  name           String
-  email          String
-  company        String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organisation Organisation @relation(fields: [organisationId], references: [id])
-
-  @@unique([organisationId, email])
-  @@index([organisationId])
-}
-
-// A business-defined data shape beyond Product/Customer — a landlord's
-// Properties, a law firm's Cases, whatever a category needs to look
-// something up in that isn't retail/quote-shaped. Deliberately generic
-// (name + a field list, same {name, description} shape as
-// Agent.extractionFields) rather than real Postgres columns per type:
-// there's no way to know a business's field names ahead of time the way
-// Product's sku/unitPrice/stockQuantity could be, and adding a table per
-// entity type would mean a migration every time a business defines one.
+// The shape of a business's own data — a landlord's Properties, a law
+// firm's Cases, a merchant's Products. Every record type lives here now:
+// Product and Customer used to be real tables with real columns, which
+// meant every business in every industry carried a retail-shaped schema it
+// could not change. They are ordinary seeded types like any other since
+// 20260904020000_collapse_catalog_into_record_types (CLAUDE.md §4.3).
+//
+// Deliberately generic (name + a typed field list) rather than real
+// Postgres columns per type: a business's field names can't be known ahead
+// of time, and a table per type would mean a migration every time a
+// business defines one.
 model CustomEntityType {
   id             String   @id @default(cuid())
   organisationId String
@@ -608,5 +570,39 @@ model KnowledgeChunk {
   organisation Organisation      @relation(fields: [organisationId], references: [id])
 
   @@index([documentId])
+  @@index([organisationId])
+}
+
+// A named, reusable step programme a business can install onto a new agent
+// and then edit freely (docs/agent-step-engine-design.md §6).
+//
+// This is where verticals live. "Quote Handling" is a template, not a
+// platform feature — the whole point of CLAUDE.md §3 is that a specific
+// business process must never become a first-class primitive that every
+// unrelated business has to scroll past.
+//
+// Database rows rather than code constants so a business can save its own
+// working agent as a reusable starting point, not only install ones that
+// shipped with the product. organisationId is nullable for exactly that
+// reason: null means a built-in template visible to everyone, set means a
+// business's own private one.
+model AgentTemplate {
+  id             String  @id @default(cuid())
+  organisationId String?
+  name           String
+  description    String
+  // The step programme, same shape Agent.pipelineConfig holds and
+  // validated by the same schema (lib/harness/steps/schema.ts) — a
+  // template that wouldn't run is not a template.
+  steps          Json    @default("{}")
+  // Tools the steps need. Installing a template pre-ticks these rather
+  // than granting them silently: a tool an agent holds without anyone
+  // choosing it is exactly what the per-agent grant model exists to stop.
+  suggestedTools String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id])
+
   @@index([organisationId])
 }

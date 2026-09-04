@@ -1,20 +1,20 @@
-import * as customerRepository from "@/lib/customers/customer-repository";
 import * as entityRecordRepository from "@/lib/entities/entity-record-repository";
 import * as entityTypeRepository from "@/lib/entities/entity-type-repository";
-import * as productRepository from "@/lib/products/product-repository";
 
 /**
- * One uniform shape for every record an agent can read, whether it came
- * from a built-in table (Product/Customer) or a business-defined
- * CustomEntityType. This is the whole point of the module: tools speak
- * "record type + fields", never "which table".
+ * One uniform shape for every record an agent can read or write.
  *
- * `data` is deliberately a flat string-keyed bag rather than a typed
- * per-source shape — an agent gets the same envelope regardless of where
- * the row lives, so when Product/Customer eventually become ordinary
- * seeded record types (CLAUDE.md §7), the tool layer above this does not
- * change at all. That migration is a swap inside `readBuiltIn`, nothing
- * more.
+ * Tools speak "record type + fields", never "which table" — and as of the
+ * catalog collapse there is only one table, so that promise is now
+ * structural rather than something this module has to maintain by hand.
+ *
+ * Product and Customer used to be real Postgres tables handled by a
+ * parallel code path here: their own repositories, their own row-to-record
+ * mappers, their own branch in every lookup, and a `BuiltInRecordTypeError`
+ * that refused agent writes outright. All of that is gone. They are
+ * ordinary Record Types seeded from lib/records/starter-record-types.ts,
+ * which is what makes them editable, extendable and deletable by the
+ * business that owns them (CLAUDE.md §4.3, §7).
  */
 export interface ResolvedRecord {
   id: string;
@@ -22,58 +22,9 @@ export interface ResolvedRecord {
   data: Record<string, unknown>;
 }
 
-// Built-in record types, matched case-insensitively so an LLM writing
-// "product" instead of "Product" still resolves. These are not privileged
-// concepts — they are record types that happen to have real columns today
-// because they predate CustomEntityType (CLAUDE.md §4.3).
-const BUILT_IN_TYPES = ["Customer", "Product"] as const;
-type BuiltInType = (typeof BUILT_IN_TYPES)[number];
-
-function resolveBuiltIn(typeName: string): BuiltInType | null {
-  return (
-    BUILT_IN_TYPES.find(
-      (t) => t.toLowerCase() === typeName.trim().toLowerCase(),
-    ) ?? null
-  );
-}
-
-function customerToRecord(c: {
-  id: string;
-  name: string;
-  email: string;
-  company: string;
-}): ResolvedRecord {
-  return {
-    id: c.id,
-    type: "Customer",
-    data: { name: c.name, email: c.email, company: c.company },
-  };
-}
-
-function productToRecord(p: {
-  id: string;
-  sku: string;
-  name: string;
-  unitPrice: number;
-  stockQuantity: number;
-}): ResolvedRecord {
-  return {
-    id: p.id,
-    type: "Product",
-    // stockQuantity is exposed as an ordinary field rather than through a
-    // separate "check stock" tool — availability is a property of the
-    // product, not a distinct capability (CLAUDE.md §4.5).
-    data: {
-      sku: p.sku,
-      name: p.name,
-      unitPrice: p.unitPrice,
-      stockQuantity: p.stockQuantity,
-    },
-  };
-}
-
 /**
- * Every record type name this organisation can address, built-ins first.
+ * Every record type name this organisation can address.
+ *
  * Used to give a caller a real list when it names a type that does not
  * exist — an LLM guessing "Jobs" instead of "Job" gets told what is
  * actually available rather than a bare "not found".
@@ -81,57 +32,37 @@ function productToRecord(p: {
 export async function listRecordTypeNames(
   organisationId: string,
 ): Promise<string[]> {
-  const custom =
+  const types =
     await entityTypeRepository.findEntityTypesByOrganisation(organisationId);
-  return [...BUILT_IN_TYPES, ...custom.map((t) => t.name)];
+  return types.map((t) => t.name);
 }
 
-async function findBuiltInByField(
+/**
+ * Resolves a record type by name, case-insensitively.
+ *
+ * The case-insensitive match is deliberate and predates the collapse: an
+ * LLM writing "product" for a type named "Product" is a naming slip, not a
+ * different type, and failing on it would strand an agent that is
+ * otherwise correct.
+ */
+async function resolveType(
   organisationId: string,
-  type: BuiltInType,
-  field: string,
-  value: string,
-): Promise<ResolvedRecord | null> {
-  const wanted = value.trim().toLowerCase();
-
-  if (type === "Customer") {
-    if (field === "id") {
-      const all =
-        await customerRepository.findCustomersByOrganisation(organisationId);
-      const hit = all.find((c) => c.id === value);
-      return hit ? customerToRecord(hit) : null;
-    }
-    const candidates = await customerRepository.searchCustomers(
-      organisationId,
-      value,
-    );
-    const hit = candidates.find(
-      (c) =>
-        String(customerToRecord(c).data[field] ?? "")
-          .trim()
-          .toLowerCase() === wanted,
-    );
-    return hit ? customerToRecord(hit) : null;
-  }
-
-  if (field === "id") {
-    const product = await productRepository.findProductById(
-      organisationId,
-      value,
-    );
-    return product ? productToRecord(product) : null;
-  }
-  const candidates = await productRepository.searchProducts(
+  typeName: string,
+): Promise<{ id: string; name: string }> {
+  const exact = await entityTypeRepository.findEntityTypeByName(
     organisationId,
-    value,
+    typeName,
   );
-  const hit = candidates.find(
-    (p) =>
-      String(productToRecord(p).data[field] ?? "")
-        .trim()
-        .toLowerCase() === wanted,
-  );
-  return hit ? productToRecord(hit) : null;
+  if (exact) return { id: exact.id, name: exact.name };
+
+  const wanted = typeName.trim().toLowerCase();
+  const all =
+    await entityTypeRepository.findEntityTypesByOrganisation(organisationId);
+  const hit = all.find((t) => t.name.trim().toLowerCase() === wanted);
+  if (!hit) {
+    throw new UnknownRecordTypeError(typeName);
+  }
+  return { id: hit.id, name: hit.name };
 }
 
 /**
@@ -150,18 +81,7 @@ export async function findRecord(
   field: string,
   value: string,
 ): Promise<ResolvedRecord | null> {
-  const builtIn = resolveBuiltIn(typeName);
-  if (builtIn) {
-    return findBuiltInByField(organisationId, builtIn, field, value);
-  }
-
-  const type = await entityTypeRepository.findEntityTypeByName(
-    organisationId,
-    typeName,
-  );
-  if (!type) {
-    throw new UnknownRecordTypeError(typeName);
-  }
+  const type = await resolveType(organisationId, typeName);
 
   const record = await entityRecordRepository.findRecordByFieldValue(
     organisationId,
@@ -179,35 +99,15 @@ export async function findRecord(
 }
 
 /**
- * Fuzzy multi-record search, for an LLM's free-text guesses. Capped
- * per-source (5 for custom records, first match onward for built-ins) —
- * this feeds a prompt, not a results page.
+ * Fuzzy multi-record search, for an LLM's free-text guesses. Capped by the
+ * repository — this feeds a prompt, not a results page.
  */
 export async function searchRecords(
   organisationId: string,
   typeName: string,
   query: string,
 ): Promise<ResolvedRecord[]> {
-  const builtIn = resolveBuiltIn(typeName);
-  if (builtIn === "Customer") {
-    const rows = await customerRepository.searchCustomers(
-      organisationId,
-      query,
-    );
-    return rows.slice(0, 5).map(customerToRecord);
-  }
-  if (builtIn === "Product") {
-    const rows = await productRepository.searchProducts(organisationId, query);
-    return rows.slice(0, 5).map(productToRecord);
-  }
-
-  const type = await entityTypeRepository.findEntityTypeByName(
-    organisationId,
-    typeName,
-  );
-  if (!type) {
-    throw new UnknownRecordTypeError(typeName);
-  }
+  const type = await resolveType(organisationId, typeName);
 
   const rows = await entityRecordRepository.searchRecords(
     organisationId,
@@ -235,37 +135,13 @@ export class UnknownRecordTypeError extends Error {
 }
 
 /**
- * Raised when a write is attempted against a built-in record type.
- *
- * Reads work uniformly across built-in and custom types, but writes do
- * not yet: Product/Customer have real typed columns (notably
- * `Product.unitPrice`, a Decimal) that an untyped `Record<string,
- * unknown>` cannot safely populate — coercing a model-supplied string
- * into a money column is exactly the kind of silent corruption this
- * codebase avoids elsewhere. Refused loudly rather than half-supported.
- *
- * This asymmetry disappears when Product/Customer become ordinary seeded
- * record types, which is gated on typed Record Type fields landing first
- * (CLAUDE.md §4.3 and §7). Until then a human creates these in the
- * Catalog UI.
- */
-export class BuiltInRecordTypeError extends Error {
-  constructor(public readonly typeName: string) {
-    super(
-      `"${typeName}" is a built-in record type and can't be written to by an agent yet — add or edit it in the Catalog instead.`,
-    );
-    this.name = "BuiltInRecordTypeError";
-  }
-}
-
-/**
  * Turns a record-type failure into a message worth showing a model,
  * appending the list of types that actually exist when it named one that
  * doesn't. Returns null for anything else, so callers rethrow genuine
  * faults instead of reporting them as ordinary tool errors.
  *
- * Shared by all four record tools — without it each repeats the same
- * catch block, and they drift.
+ * Shared by all four record tools — without it each repeats the same catch
+ * block, and they drift.
  */
 export async function describeRecordTypeError(
   organisationId: string,
@@ -273,33 +149,26 @@ export async function describeRecordTypeError(
 ): Promise<string | null> {
   if (error instanceof UnknownRecordTypeError) {
     const available = await listRecordTypeNames(organisationId);
-    return `${error.message} Available record types: ${available.join(", ")}.`;
-  }
-  if (error instanceof BuiltInRecordTypeError) {
-    return error.message;
+    return available.length > 0
+      ? `${error.message} Available record types: ${available.join(", ")}.`
+      : `${error.message} This business hasn't defined any record types yet.`;
   }
   return null;
 }
 
 /**
- * Resolves a record type that an agent may write to, rejecting both
- * unknown names and (for now) built-in types. Shared by create_record and
- * update_record so the two cannot drift apart on which types are
- * writable.
+ * Resolves a record type an agent may write to. Shared by create_record and
+ * update_record so the two cannot drift apart on which types are writable.
+ *
+ * Every record type is writable now. It previously refused Product and
+ * Customer, because their real `Decimal`/`Int` columns couldn't be safely
+ * populated from an untyped bag a model produced. Typed fields removed that
+ * reason — `currency` rounds to 2dp and `number` is validated on write — and
+ * the collapse removed the columns.
  */
 export async function resolveWritableType(
   organisationId: string,
   typeName: string,
 ): Promise<{ id: string; name: string }> {
-  if (resolveBuiltIn(typeName)) {
-    throw new BuiltInRecordTypeError(typeName);
-  }
-  const type = await entityTypeRepository.findEntityTypeByName(
-    organisationId,
-    typeName,
-  );
-  if (!type) {
-    throw new UnknownRecordTypeError(typeName);
-  }
-  return { id: type.id, name: type.name };
+  return resolveType(organisationId, typeName);
 }

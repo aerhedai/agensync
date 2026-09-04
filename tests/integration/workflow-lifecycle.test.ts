@@ -16,6 +16,12 @@ describe("workflow lifecycle", () => {
     await prisma.workflow.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.integration.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
 
     await prisma.organisation.create({
@@ -58,6 +64,12 @@ describe("workflow lifecycle", () => {
     await prisma.workflow.deleteMany({ where: { organisationId } });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.integration.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });
@@ -379,6 +391,12 @@ describe("workflow lifecycle", () => {
     );
     expect(reloaded?.members).toHaveLength(1);
 
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: otherOrganisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: otherOrganisationId },
+    });
     await prisma.organisation.deleteMany({
       where: { id: otherOrganisationId },
     });

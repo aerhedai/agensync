@@ -4,6 +4,7 @@ import type { AIProvider, AIResponse } from "@/lib/ai/provider";
 import { prisma } from "@/lib/db/prisma";
 import type { Agent } from "@/lib/generated/prisma/client";
 import { runHarnessPipeline } from "@/lib/harness/run-harness-pipeline";
+import { createRecord } from "@/tests/helpers/records";
 
 // The step engine's whole claim is that a business process becomes
 // configuration rather than a new pipeline file. These tests exercise that
@@ -91,13 +92,10 @@ describe("steps pipeline", () => {
         data: { number: "INV-1", total: "100" },
       },
     });
-    await prisma.customer.create({
-      data: {
-        organisationId,
-        name: "Known Customer",
-        email: "known@steps.test",
-        company: "Known Ltd",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Known Customer",
+      email: "known@steps.test",
+      company: "Known Ltd",
     });
   });
 
@@ -114,7 +112,6 @@ describe("steps pipeline", () => {
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.customEntityRecord.deleteMany({ where: { organisationId } });
     await prisma.customEntityType.deleteMany({ where: { organisationId } });
-    await prisma.customer.deleteMany({ where: { organisationId } });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });

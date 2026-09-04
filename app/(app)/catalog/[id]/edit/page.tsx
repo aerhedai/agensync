@@ -7,7 +7,7 @@ import { getCurrentOrganisation } from "@/lib/organisations/current-organisation
 
 export default async function EditEntityTypePage({
   params,
-}: PageProps<"/catalog/entities/[id]/edit">) {
+}: PageProps<"/catalog/[id]/edit">) {
   const { id } = await params;
   const organisation = await getCurrentOrganisation();
   const entityType = await entityTypeService.getEntityType(organisation.id, id);

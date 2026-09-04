@@ -8,7 +8,7 @@ import { getCurrentOrganisation } from "@/lib/organisations/current-organisation
 
 export default async function EditEntityRecordPage({
   params,
-}: PageProps<"/catalog/entities/[id]/records/[recordId]/edit">) {
+}: PageProps<"/catalog/[id]/records/[recordId]/edit">) {
   const { id, recordId } = await params;
   const organisation = await getCurrentOrganisation();
   const [entityType, record] = await Promise.all([

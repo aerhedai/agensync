@@ -126,6 +126,19 @@ const computeStepSchema = z.object({
   operands: z.array(operandSchema).min(1).max(5),
 });
 
+// Retrieval from the business's own knowledge base. Its own kind rather
+// than an `act` step calling search_knowledge, because `act` is terminal —
+// it ends the run — so retrieved passages could never be used by a later
+// compose step, which is the entire point of retrieving them.
+const retrieveStepSchema = z.object({
+  kind: z.literal("retrieve"),
+  as: valueNameSchema,
+  query: operandSchema,
+  // Small by default: retrieval exists to keep prompts lean, and pulling
+  // in ten passages to "be safe" defeats that.
+  limit: z.number().int().min(1).max(10).default(4),
+});
+
 const composeStepSchema = z.object({
   kind: z.literal("compose"),
   as: valueNameSchema,
@@ -167,6 +180,7 @@ const leafStepSchema = z.discriminatedUnion("kind", [
   extractStepSchema,
   lookupStepSchema,
   computeStepSchema,
+  retrieveStepSchema,
   composeStepSchema,
   actStepSchema,
 ]);

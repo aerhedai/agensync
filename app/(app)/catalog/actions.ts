@@ -81,7 +81,7 @@ export async function createEntityTypeAction(
   } catch {
     return { error: "An entity type with that name already exists." };
   }
-  redirect(`/catalog/entities/${entityTypeId}`);
+  redirect(`/catalog/${entityTypeId}`);
 }
 
 // Existing records keep whatever data they already have under a field
@@ -113,7 +113,7 @@ export async function updateEntityTypeAction(
   if (!updated) {
     notFound();
   }
-  redirect(`/catalog/entities/${id}`);
+  redirect(`/catalog/${id}`);
 }
 
 // Cascades to every record of this type — see schema.prisma's
@@ -124,6 +124,6 @@ export async function deleteEntityTypeAction(id: string) {
   if (!deleted) {
     notFound();
   }
-  revalidatePath("/catalog/entities");
-  redirect("/catalog/entities");
+  revalidatePath("/catalog");
+  redirect("/catalog");
 }

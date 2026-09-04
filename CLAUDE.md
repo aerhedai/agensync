@@ -219,10 +219,11 @@ Required improvements, in order:
    hatch for the many platforms that will never grant API access to a
    small merchant.
 
-`Product` and `Customer` remain real tables for now. They are *not*
-privileged concepts — they are effectively built-in Record Types, and
-should eventually become seeded templates. Do not add a third hardcoded
-domain table.
+`Product` and `Customer` were real tables until the catalog collapse.
+They are now ordinary Record Types seeded from
+`lib/records/starter-record-types.ts` when a template that needs them is
+installed — editable, extendable and deletable like any other. There are
+no hardcoded domain tables left. Do not add one.
 
 ## 4.4 Agent
 
@@ -457,12 +458,14 @@ was never retired.** Most of that has now been unwound.
 | `create_/update_custom_entity_record` | `create_record` / `update_record` |
 | `create_storage_folder`, `save_storage_file`, `populate_document_template` | `create_folder`, `save_file`, `populate_template` |
 | `pipelineConfig.entityType`, `extractionFields[].lookupEntityType` | `recordType` / `lookupRecordType` — one word for one concept |
+| `Product`, `Customer` tables | Ordinary Record Types, seeded by the template that needs them. Agents can now write to them; `BuiltInRecordTypeError` is gone |
 
 Sixteen tools became eleven, covering strictly more ground.
-`lib/records/record-service.ts` is what made it possible: built-in
-(`Product`/`Customer`) and business-defined types resolve through one
-uniform `{id, type, data}` envelope, so the tool layer no longer knows or
-cares which table a record lives in.
+`lib/records/record-service.ts` is what made it possible: every type
+resolves through one uniform `{id, type, data}` envelope, so the tool
+layer never knew which table a record lived in. That abstraction is what
+let the `Product`/`Customer` tables be collapsed underneath it later
+without the tools changing at all.
 
 `send_email` and `notify_channel` deliberately did **not** merge into a
 single "send a message" tool. An outbound customer email and an internal
@@ -473,39 +476,31 @@ depends on telling them apart (§4.6).
 
 | Legacy | Generic successor | Blocked on |
 |---|---|---|
-| `Product`, `Customer` tables | `CustomEntityType` | Typed Record Type fields (§4.3) |
 | `extractionFields`, `guardrailKeywords`, `replySubjectTemplate`, `actionTool` (named `Agent` columns) | `pipelineConfig` (JSON) | Nothing — mechanical, just not done yet |
 | `quote` pipeline (bespoke chain) | A template | Templates being real (§6) |
-
-Writes to `Product`/`Customer` are refused rather than half-supported:
-an untyped bag from a model cannot safely populate a `Decimal` column, so
-`BuiltInRecordTypeError` says so plainly instead of silently coercing.
-That asymmetry disappears when those tables become ordinary record types.
 
 `entity_status_signal` and `entity_correspondence_archive` remain the
 model for how a pipeline should be built: neutrally named, config-driven
 via `pipelineConfig`, usable by any business.
 
-**Sequencing still matters, but one entry above was over-cautious.** The
-general rule stands: do not consolidate before the primitives are strong
-enough to absorb what is being deleted.
+**Sequencing still matters.** The general rule stands: do not consolidate
+before the primitives are strong enough to absorb what is being deleted.
+Typed Record Type fields had to land before the catalog collapse, because
+`Product.unitPrice` was a `Decimal` and a `currency` field is what
+replaced it without downgrading a price to a string.
 
-The specific `Product`/`Customer` warning here originally read "collapsing
-them today would replace a real `Decimal` price with an untyped string — a
-downgrade." That was written assuming those tables held data. Checked
-against production since: **both hold zero rows.** There is no price data
-to downgrade, so that collapse is far cheaper than stated and is not
-genuinely blocked on typed fields — only on someone doing it. Typed fields
-are still required for `compute`/`branch` steps and data-driven policies,
-which is a different reason.
+The collapse migration copies every row into `CustomEntityRecord` before
+dropping the tables, so it is correct whether or not they held data —
+worth imitating. A migration whose safety depends on someone having
+checked a row count first is a migration that will eventually run against
+a database nobody checked.
 
-Correct order:
+Remaining order:
 
 ```text
-1. Typed Record Type fields  (4.3)  — for policies/compute, not the catalog
-2. Policies as data          (4.6)
-3. SCHEDULE trigger          (4.2)
-4. Then the remaining consolidation above
+1. Policies as data   (4.6)
+2. SCHEDULE trigger   (4.2)
+3. Then the remaining consolidation above
 ```
 
 A fuller redesign of agent creation (steps as data, replacing the fixed

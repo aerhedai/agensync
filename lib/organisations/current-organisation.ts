@@ -59,16 +59,15 @@ export async function getCurrentOrganisation(): Promise<Organisation> {
     const organisation = await prisma.organisation.create({
       data: { clerkOrgId: orgId, name: clerkOrg.name },
     });
-    // Starter catalog is deliberately empty — a real business populates
-    // its own via /catalog, unlike the seeded demo orgs this replaces.
+    // The template brings its own record types (Product, Customer) but no
+    // rows — a real business populates its own catalog via /catalog, unlike
+    // the seeded demo orgs this replaces.
     await provisionEmailWorkflow({
       organisationId: organisation.id,
       currency: "GBP",
       model: DEFAULT_AGENT_MODEL,
       quoteKeywords: DEFAULT_QUOTE_KEYWORDS,
       complaintsKeywords: DEFAULT_COMPLAINTS_KEYWORDS,
-      products: [],
-      customers: [],
     });
     return organisation;
   } catch (error) {

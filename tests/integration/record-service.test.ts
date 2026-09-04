@@ -2,13 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { prisma } from "@/lib/db/prisma";
 import {
-  BuiltInRecordTypeError,
   UnknownRecordTypeError,
   findRecord,
   listRecordTypeNames,
   resolveWritableType,
   searchRecords,
 } from "@/lib/records/record-service";
+import { createRecord } from "@/tests/helpers/records";
 
 // The record service is what makes Product/Customer and business-defined
 // types addressable through one vocabulary (CLAUDE.md §4.3). These tests
@@ -26,24 +26,16 @@ describe("record service", () => {
       });
     }
 
-    await prisma.product.create({
-      data: {
-        id: "rs-prod-1",
-        organisationId,
-        sku: "RS-WIDGET",
-        name: "Record Service Widget",
-        unitPrice: 12.5,
-        stockQuantity: 42,
-      },
+    await createRecord(organisationId, "Product", {
+      sku: "RS-WIDGET",
+      name: "Record Service Widget",
+      unitPrice: 12.5,
+      stockQuantity: 42,
     });
-    await prisma.customer.create({
-      data: {
-        id: "rs-cust-1",
-        organisationId,
-        name: "Recordy McRecordface",
-        email: "buyer@record-service.test",
-        company: "Record Co",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Recordy McRecordface",
+      email: "buyer@record-service.test",
+      company: "Record Co",
     });
 
     const jobType = await prisma.customEntityType.create({
@@ -91,10 +83,6 @@ describe("record service", () => {
       where: { organisationId: { in: ids } },
     });
     await prisma.customEntityType.deleteMany({
-      where: { organisationId: { in: ids } },
-    });
-    await prisma.product.deleteMany({ where: { organisationId: { in: ids } } });
-    await prisma.customer.deleteMany({
       where: { organisationId: { in: ids } },
     });
     await prisma.organisation.deleteMany({ where: { id: { in: ids } } });
@@ -163,21 +151,36 @@ describe("record service", () => {
     ).resolves.toBeNull();
   });
 
-  it("lists built-in types alongside the organisation's own", async () => {
+  it("lists every record type this organisation has, with no privileged ones", async () => {
+    // Product and Customer used to be prepended as built-ins ahead of the
+    // business's own types. They are ordinary rows now, so this is one
+    // uniform list and nothing here knows which came from a template.
     const names = await listRecordTypeNames(organisationId);
-    expect(names).toEqual(["Customer", "Product", "Job"]);
+    expect([...names].sort()).toEqual(["Customer", "Job", "Product"]);
   });
 
-  it("refuses writes to built-in types instead of coercing into typed columns", async () => {
-    // Product.unitPrice is a Decimal; an untyped bag from a model cannot
-    // safely populate it. Refused until Product/Customer become ordinary
-    // record types (CLAUDE.md §7).
+  it("lets an agent write to Product, which used to be refused outright", async () => {
+    // The old built-in tables refused agent writes: Product.unitPrice was a
+    // Decimal column and an untyped bag from a model could not safely
+    // populate it. Typed fields removed that reason and the collapse removed
+    // the column, so this is now an ordinary writable record type — the
+    // single most visible consequence of the change.
     await expect(
       resolveWritableType(organisationId, "Product"),
-    ).rejects.toBeInstanceOf(BuiltInRecordTypeError);
+    ).resolves.toMatchObject({ name: "Product" });
 
     await expect(
       resolveWritableType(organisationId, "Job"),
     ).resolves.toMatchObject({ name: "Job" });
+  });
+
+  it("still refuses a type that does not exist", async () => {
+    // The useful half of the old refusal has to survive: naming a type that
+    // isn't there is a different failure from finding no rows, and
+    // collapsing the two would let a misconfigured agent look like it was
+    // working against empty data.
+    await expect(
+      resolveWritableType(organisationId, "NotARealType"),
+    ).rejects.toBeInstanceOf(UnknownRecordTypeError);
   });
 });

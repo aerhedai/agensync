@@ -4,6 +4,7 @@ import type { AIProvider, AIResponse } from "@/lib/ai/provider";
 import { prisma } from "@/lib/db/prisma";
 import type { Agent, User } from "@/lib/generated/prisma/client";
 import { resumeRun, runAgent } from "@/lib/runtime/agent-runtime";
+import { createRecord } from "@/tests/helpers/records";
 
 // Ollama isn't reachable from CI, so the runtime's loop logic — step
 // counting, persistence, tool execution, error handling — is proven here
@@ -46,23 +47,16 @@ describe("agent runtime", () => {
     });
     // Real per-org catalog row the find_record tool call below resolves
     // against — replaces the old shared lib/mcp/mock-data.ts arrays.
-    await prisma.product.create({
-      data: {
-        id: "runtime-prod-1",
-        organisationId,
-        sku: "TEST-WIDGET-A",
-        name: "Product A",
-        unitPrice: 15,
-        stockQuantity: 700,
-      },
+    await createRecord(organisationId, "Product", {
+      sku: "TEST-WIDGET-A",
+      name: "Product A",
+      unitPrice: 15,
+      stockQuantity: 700,
     });
-    await prisma.customer.create({
-      data: {
-        organisationId,
-        name: "Test Customer",
-        email: "buyer@customer-abc.test",
-        company: "Customer ABC Ltd",
-      },
+    await createRecord(organisationId, "Customer", {
+      name: "Test Customer",
+      email: "buyer@customer-abc.test",
+      company: "Customer ABC Ltd",
     });
     agent = await prisma.agent.create({
       data: {
@@ -122,8 +116,12 @@ describe("agent runtime", () => {
     });
     await prisma.agent.deleteMany({ where: { organisationId } });
     await prisma.user.deleteMany({ where: { organisationId } });
-    await prisma.product.deleteMany({ where: { organisationId } });
-    await prisma.customer.deleteMany({ where: { organisationId } });
+    await prisma.customEntityRecord.deleteMany({
+      where: { organisationId: organisationId },
+    });
+    await prisma.customEntityType.deleteMany({
+      where: { organisationId: organisationId },
+    });
     await prisma.organisation.deleteMany({ where: { id: organisationId } });
     await prisma.$disconnect();
   });

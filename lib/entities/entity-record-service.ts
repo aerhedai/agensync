@@ -5,7 +5,7 @@ import {
   resolveReferences,
   validateReferences,
 } from "@/lib/entities/references";
-import { entityFieldsSchema } from "@/lib/entities/schemas";
+import { coerceRecordData, entityFieldsSchema } from "@/lib/entities/schemas";
 
 export function listRecords(organisationId: string, entityTypeId: string) {
   return entityRecordRepository.findRecordsByEntityType(
@@ -38,7 +38,7 @@ export function updateRecord(
 // Validation against the entity type's own dynamic field schema happens
 // at the call site (the record's shape depends on DB state, not
 // something this thin a layer should own) — see
-// app/catalog/entities/[id]/actions.ts and
+// app/catalog/[id]/actions.ts and
 // lib/entities/schemas.ts's buildRecordDataSchema.
 export function createRecord(
   organisationId: string,
@@ -93,13 +93,23 @@ export async function createRecordChecked(
   data: Record<string, unknown>,
 ) {
   const fields = await fieldsForType(organisationId, entityTypeId);
+  let values = data;
   if (fields) {
-    await validateReferences(organisationId, fields, data);
+    // Partial on create too, deliberately. The bug being fixed is *type*
+    // corruption — a currency field storing the string "12.5". Enforcing
+    // required-ness here as well would be a second, riskier change: every
+    // field defined before typed fields existed defaults to required:true
+    // without anyone having chosen that, so agents already in production
+    // that write partial records would start failing on deploy. Tightening
+    // this is a deliberate decision to make separately; the Catalog form
+    // still enforces required on the human path.
+    values = coerceRecordData(fields, data, { partial: true });
+    await validateReferences(organisationId, fields, values);
   }
   return entityRecordRepository.createRecord(
     organisationId,
     entityTypeId,
-    data as Prisma.InputJsonValue,
+    values as Prisma.InputJsonValue,
   );
 }
 
@@ -115,13 +125,17 @@ export async function updateRecordChecked(
   );
   if (!existing) return null;
   const fields = await fieldsForType(organisationId, existing.entityTypeId);
+  let values = data;
   if (fields) {
-    await validateReferences(organisationId, fields, data);
+    // Partial: an update merges a patch, so requiring every field would mean
+    // resending the whole record to change one value.
+    values = coerceRecordData(fields, data, { partial: true });
+    await validateReferences(organisationId, fields, values);
   }
   return entityRecordRepository.updateRecordData(
     organisationId,
     recordId,
-    data,
+    values,
   );
 }
 

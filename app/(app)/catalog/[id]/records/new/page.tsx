@@ -7,7 +7,7 @@ import { getCurrentOrganisation } from "@/lib/organisations/current-organisation
 
 export default async function NewEntityRecordPage({
   params,
-}: PageProps<"/catalog/entities/[id]/records/new">) {
+}: PageProps<"/catalog/[id]/records/new">) {
   const { id } = await params;
   const organisation = await getCurrentOrganisation();
   const entityType = await entityTypeService.getEntityType(organisation.id, id);

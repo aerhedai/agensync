@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EntityTypeDetailPage({
   params,
-}: PageProps<"/catalog/entities/[id]">) {
+}: PageProps<"/catalog/[id]">) {
   const { id } = await params;
   const organisation = await getCurrentOrganisation();
   const entityType = await entityTypeService.getEntityType(organisation.id, id);
@@ -34,13 +34,13 @@ export default async function EntityTypeDetailPage({
           <Button
             variant="outline"
             nativeButton={false}
-            render={<Link href={`/catalog/entities/${id}/edit`} />}
+            render={<Link href={`/catalog/${id}/edit`} />}
           >
             Edit
           </Button>
           <Button
             nativeButton={false}
-            render={<Link href={`/catalog/entities/${id}/records/new`} />}
+            render={<Link href={`/catalog/${id}/records/new`} />}
           >
             Add record
           </Button>
@@ -105,7 +105,7 @@ export default async function EntityTypeDetailPage({
                         nativeButton={false}
                         render={
                           <Link
-                            href={`/catalog/entities/${id}/records/${record.id}/edit`}
+                            href={`/catalog/${id}/records/${record.id}/edit`}
                           />
                         }
                       >

@@ -1,15 +1,18 @@
 import type { AIProvider } from "@/lib/ai/provider";
 import { OllamaProvider } from "@/lib/ai/providers/ollama-provider";
+import { OpenRouterProvider } from "@/lib/ai/providers/openrouter-provider";
 import * as integrationRepository from "@/lib/integrations/integration-repository";
 import * as integrationService from "@/lib/integrations/integration-service";
 
 // An AI provider connection is a Connection like any other (CLAUDE.md
 // §4.1) — an authenticated link to an external system, owned by one
 // organisation — so it's stored as an ordinary Integration rather than a
-// bespoke table. "ollama" is the only kind actually implemented; this list
-// exists so a second provider (a hosted commercial API) is an addition
-// here, not a new storage model.
+// bespoke table. Adding OpenRouter alongside Ollama was exactly the
+// addition-not-rewrite this list predicted: a second constant and a second
+// adapter file, no change to storage shape or to any caller in
+// lib/runtime/, lib/harness/ or lib/routing/.
 export const OLLAMA_PROVIDER = "ollama";
+export const OPENROUTER_PROVIDER = "openrouter";
 
 // Only one AI connection makes sense per organisation today — unlike
 // Gmail/Slack, there's no "which one of several" concept yet (no
@@ -80,15 +83,43 @@ export async function setOllamaProvider(
   );
 }
 
+export interface OpenRouterProviderInput {
+  apiKey: string;
+}
+
+/**
+ * OpenRouter has no per-organisation base URL or proxy to configure — one
+ * fixed hosted endpoint, one credential. The model itself isn't stored here
+ * either: like Ollama, it's a plain string on each Agent (Agent.model),
+ * resolved per call, not per connection — an org can run different agents
+ * against different OpenRouter models through the same one connection.
+ */
+export async function setOpenRouterProvider(
+  organisationId: string,
+  input: OpenRouterProviderInput,
+): Promise<void> {
+  await integrationRepository.upsertIntegration(
+    organisationId,
+    OPENROUTER_PROVIDER,
+    CONNECTION_NAME,
+    { config: {}, credentials: { apiKey: input.apiKey } },
+  );
+}
+
 export async function disconnectAIProvider(
   organisationId: string,
 ): Promise<void> {
-  const existing = await integrationService.getDefaultIntegrationByProvider(
-    organisationId,
-    OLLAMA_PROVIDER,
-  );
-  if (existing) {
-    await integrationService.disconnectIntegration(organisationId, existing.id);
+  for (const provider of [OLLAMA_PROVIDER, OPENROUTER_PROVIDER]) {
+    const existing = await integrationService.getDefaultIntegrationByProvider(
+      organisationId,
+      provider,
+    );
+    if (existing) {
+      await integrationService.disconnectIntegration(
+        organisationId,
+        existing.id,
+      );
+    }
   }
 }
 
@@ -121,6 +152,21 @@ export async function getOrganisationAIConnection(
 export async function getAIProvider(
   organisationId: string,
 ): Promise<AIProvider> {
+  // OpenRouter is checked first: an organisation that has connected it made
+  // a deliberate choice to run its agents against a specific hosted model
+  // (often chosen for cost — CLAUDE.md's whole point about swapping the
+  // model provider being trivial), which should take priority over a
+  // leftover Ollama connection rather than requiring the older one be
+  // deleted first.
+  const openRouter = await integrationService.getDefaultIntegrationByProvider(
+    organisationId,
+    OPENROUTER_PROVIDER,
+  );
+  const openRouterApiKey = openRouter?.credentials?.apiKey;
+  if (openRouter && typeof openRouterApiKey === "string") {
+    return new OpenRouterProvider(openRouterApiKey);
+  }
+
   const integration = await integrationService.getDefaultIntegrationByProvider(
     organisationId,
     OLLAMA_PROVIDER,

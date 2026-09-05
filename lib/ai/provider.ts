@@ -34,6 +34,14 @@ export interface GenerateRequest {
 export interface AITokenUsage {
   promptTokens: number;
   completionTokens: number;
+  /**
+   * What this exact call actually billed, in dollars, when the provider
+   * reports it directly (e.g. OpenRouter's `usage.cost`). Omitted for
+   * providers that don't — self-hosted Ollama has no dollar cost to report,
+   * and nothing here derives one from a hardcoded price list, since a
+   * third-party provider's pricing is out of this app's control.
+   */
+  costUsd?: number;
 }
 
 export interface AIResponse {
